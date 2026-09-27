@@ -110,7 +110,7 @@ class KnowledgeFabricLoader:
 
     def load_all_datasets(self) -> dict[str, Any]:
         self.datasets_dir.mkdir(parents=True, exist_ok=True)
-        files = sorted(self.datasets_dir.glob("*.jsonl"))
+        files = sorted(self.datasets_dir.rglob("*.jsonl"))
         report: dict[str, Any] = {"files": 0, "records": 0, "errors": [], "datasets": []}
         for path in files:
             result = self.load_dataset_file(path)
@@ -125,6 +125,10 @@ class KnowledgeFabricLoader:
         dataset_id = path.stem
         if not path.is_file():
             raise FileNotFoundError(path)
+        try:
+            path.resolve().relative_to(self.datasets_dir.resolve())
+        except ValueError as exc:
+            raise ValueError("dataset file must be inside datasets_dir") from exc
         total_lines = valid = inserted = errors = 0
         seen_ids: set[str] = set()
         issues: list[dict[str, Any]] = []
