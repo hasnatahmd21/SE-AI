@@ -24,7 +24,7 @@ def build_app(datasets_dir: str | Path = "./datasets", data_dir: str | Path = ".
 
     def analyze(task: str) -> str:
         if not (task or "").strip(): return "Please enter a coding task."
-        return bridge.ask(task, top_k=5)
+        return bridge.answer(task, top_k=5).to_english()
 
     def stats() -> str:
         s = loader.stats()
