@@ -637,7 +637,7 @@ class KnowledgeFabricLoader:
         # JSON strings cannot contain literal control characters. Preserve their
         # meaning by escaping only control characters encountered while inside
         # a string value; do not alter structural whitespace outside strings.
-        control_chars = {"\\b": "\\\\b", "\\f": "\\\\f", "\\n": "\\\\n", "\\r": "\\\\r", "\\t": "\\\\t"}
+        control_chars = {"\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
         control_buf: list[str] = []
         control_in_string = False
         control_escaped = False
@@ -647,7 +647,7 @@ class KnowledgeFabricLoader:
                 if control_escaped:
                     control_buf.append(char)
                     control_escaped = False
-                elif char == "\\\\":
+                elif char == "\\":
                     control_buf.append(char)
                     control_escaped = True
                 elif char == '"':
