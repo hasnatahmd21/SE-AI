@@ -24,6 +24,9 @@ class RAGItem:
             "dataset_id": self.record.dataset_id,
             "score": self.score,
             "matched_terms": list(self.matched_terms),
+            "source_file": self.record.source_file,
+            "source_line": self.record.source_line,
+            "content_hash": self.record.content_hash,
         }
 
 
