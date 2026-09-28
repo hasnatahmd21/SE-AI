@@ -682,8 +682,8 @@ class KnowledgeFabricLoader:
         # string delimiters: "literal " + "VALUE" + " suffix". Normalize
         # that complete expression while preserving the JSON string boundary.
         full_concat_pattern = re.compile(
-            r'"(?P<left>[^"\\n]*)"\\s*\\+\\s*"(?P<middle>[^"\\n]*)"'
-            r'\\s*\\+\\s*"(?P<right>[^"\\n]*)"'
+            r'"(?P<left>[^"\n]*)"\s*\+\s*"(?P<middle>[^"\n]*)"'
+            r'\s*\+\s*"(?P<right>[^"\n]*)"'
         )
         full_concatenated = full_concat_pattern.sub(
             lambda m: '"' + m.group("left") + m.group("middle") + m.group("right") + '"',
