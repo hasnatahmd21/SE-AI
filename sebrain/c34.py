@@ -670,7 +670,7 @@ class KnowledgeFabricLoader:
         # directly inside a JSON string, e.g. \\"prefix \\" + variable + \\"suffix\\".
         # This is not valid JSON, but the intended record value is deterministic:
         # concatenate the literal fragments and expression text into one string.
-        concat_pattern = re.compile(r'"\\s*\\+\\s*(?:"([^"]*)"|([^"\\n]+?))\\s*\\+\\s*"')
+        concat_pattern = re.compile(r'"\s*\+\s*(?:"([^"]*)"|([^"\n]+?))\s*\+\s*"')
         concatenated = concat_pattern.sub(
             lambda m: m.group(1) if m.group(1) is not None else m.group(2).strip(),
             line,
