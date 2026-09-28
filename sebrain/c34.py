@@ -387,6 +387,13 @@ class KnowledgeFabricLoader:
                         self._content_hash(raw),
                         raw,
                     )
+                    self._upsert_dataset_catalog(
+                        dataset_id,
+                        raw,
+                        context,
+                        manifest,
+                        path.name,
+                    )
 
                 if status == "inserted":
                     inserted += 1
@@ -412,15 +419,10 @@ class KnowledgeFabricLoader:
                 elif status == "duplicate_conflict":
                     counts["conflicts"] += 1
 
-                dataset_contexts.setdefault(dataset_id, (context, manifest))
+                # Record insertion, occurrence audit, and catalog metadata
+                # form one atomic unit. A failure in any part must not leave
+                # an apparently loaded record without its audit trail.
                 with self.storage.transaction():
-                    self._upsert_dataset_catalog(
-                        dataset_id,
-                        raw,
-                        context,
-                        manifest,
-                        path.name,
-                    )
 
         error_count = len(errors)
         self.storage.execute(
