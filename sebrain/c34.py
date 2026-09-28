@@ -522,7 +522,7 @@ class KnowledgeFabricLoader:
                     chars.append(char)
                     in_string = False
                 else:
-                    chars.append('\\\\"')
+                    chars.append('\\"')
                     changed = True
                 continue
 
