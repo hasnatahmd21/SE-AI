@@ -594,7 +594,7 @@ class KnowledgeFabricLoader:
                     in_string = False
                     string_is_key = False
                 else:
-                    chars.append("\\"")
+                    chars.append('\\"')
                     changed = True
                 continue
 
