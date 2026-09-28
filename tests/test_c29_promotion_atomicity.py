@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage
+from sebrain.c01 import SQLiteStorage, TransactionError
 from sebrain.c04 import MemoryStore
 from sebrain.c29 import (
     CandidateChange, ChangeKind, ChangeRisk, GovernanceEngine,
@@ -57,7 +57,7 @@ def test_c29_promotion_failure_rolls_back_persisted_change():
                 evidence=_ev(),
                 project_id="p",
             )
-        except RuntimeError as exc:
+        except TransactionError as exc:
             assert "synthetic audit failure" in str(exc)
         else:
             raise AssertionError("promotion audit failure was swallowed")
