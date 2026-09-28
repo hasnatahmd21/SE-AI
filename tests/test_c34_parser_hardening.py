@@ -41,7 +41,7 @@ def test_malformed_code_expression_quotes_are_repaired():
 
 
 def test_literal_control_characters_inside_record_strings_are_repaired():
-    line = '{"record_id":"D26-R001","dataset_id":"D27","example":"first\tsecond"}'
+    line = '{"record_id":"D26-R001","dataset_id":"D27","example":"first' + "\t" + 'second"}'
     repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
     assert repaired is not None
     payload = json.loads(repaired)
