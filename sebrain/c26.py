@@ -924,8 +924,32 @@ class ExperienceExtractor:
         episode = any(x is not None for x in
                       (debug_report, repair_result, verification_bundle))
         if episode:
+            # External episode artifacts are authoritative for the bundle.
+            # Memory signals are included only when their content has lexical
+            # overlap with the episode, preventing unrelated historical
+            # decisions/failures from contaminating reliability scoring.
+            episode_signals = [
+                s for s in sigs
+                if s.source not in {
+                    SignalSource.DECISION_MEMORY,
+                    SignalSource.FAILURE_MEMORY,
+                    SignalSource.EXPERIENCE_MEMORY,
+                }
+            ]
+            episode_tokens = _tokens(" ".join(s.text for s in episode_signals))
+            related_memory = []
+            for s in sigs:
+                if s.source not in {
+                    SignalSource.DECISION_MEMORY,
+                    SignalSource.FAILURE_MEMORY,
+                    SignalSource.EXPERIENCE_MEMORY,
+                }:
+                    continue
+                if episode_tokens and (_tokens(s.text) & episode_tokens):
+                    related_memory.append(s)
             return [OutcomeBundle(
-                signals=sigs, project_id=project_id, task_id=task_id,
+                signals=episode_signals + related_memory,
+                project_id=project_id, task_id=task_id,
             )]
 
         # No explicit episode → split by source category
