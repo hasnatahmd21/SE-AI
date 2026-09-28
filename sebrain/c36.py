@@ -76,12 +76,14 @@ class RAGPipeline:
         if not tokens:
             return RAGContext(query=query)
 
-        # Search the whole indexed fabric rather than sampling only the first
-        # record page. C34 performs the broad candidate lookup; C36 re-ranks it.
-        candidate_limit = max(200, top_k * 50)
+        # Retrieve every lexical candidate before C36 scoring. C34's previous
+        # fixed candidate window could discard a genuinely relevant record
+        # before field-aware reranking when the fabric grows large. Correctness
+        # takes precedence here; C34 already performs the indexed persistence
+        # lookup and C36 applies the final top-k bound after scoring.
         candidates = self.loader.search(
             query,
-            limit=candidate_limit,
+            limit=None,
             language=language,
             dataset_id=dataset_id,
             concept=concept,
