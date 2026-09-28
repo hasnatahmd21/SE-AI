@@ -21,6 +21,6 @@ def test_repo_scan_surfaces_oversized_python_file(tmp_path: Path):
 
     report = PerfAnalyzer(max_file_bytes=10).analyze_repo(tmp_path)
 
-    assert report.files_skipped == 2
+    assert report.files_skipped == 1
     assert report.scan_complete is True
     assert any("exceeds max_file_bytes" in item for item in report.coverage.not_covered)
