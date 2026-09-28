@@ -98,3 +98,15 @@ def test_json_quote_repair_handles_compact_variable_concatenation():
     assert payload["invalid_example"] == (
         'SELECT * FROM users WHERE user_id = \'"+user_input+"\''
     )
+
+def test_real_d16_b57_and_b69_concatenation_examples_are_repaired():
+    source = Path("datasets/D16 - D17")
+    lines = source.read_text(encoding="utf-8").splitlines()
+    for line_number in (270, 271, 308):
+        raw_line = lines[line_number - 1]
+        repaired = KnowledgeFabricLoader._repair_common_json_defects(raw_line)
+        assert repaired is not None, f"D16 regression line {line_number} was not repaired"
+        payload = json.loads(repaired)
+        assert payload["record_id"].startswith("D16-")
+        assert isinstance(payload.get("invalid_example"), str)
+        assert " + " in payload["invalid_example"]
