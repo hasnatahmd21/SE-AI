@@ -16,7 +16,8 @@ def test_c27_repository_does_not_swallow_ontology_link_failure():
         repo = LearningRepository(memory, ontology)
 
         report = LearningReport(project_id="p1")
-        report.candidates = []
+        from sebrain.c27 import KnowledgeCandidate
+        report.candidates = [KnowledgeCandidate()]
 
         original = ontology.link
         def broken_link(*args, **kwargs):
