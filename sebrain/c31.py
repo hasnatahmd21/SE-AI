@@ -1046,8 +1046,8 @@ class CrossProjectKnowledgeStore:
         with self.storage.transaction():
             # Copy to project (may collide)
             existing = self.storage.query_one(
-                "SELECT id FROM c31_knowledge WHERE scope='project' AND "
-                "owner_project_id=? AND key=? AND status='active';",
+                "SELECT id, status FROM c31_knowledge WHERE scope='project' "
+                "AND owner_project_id=? AND key=?;",
                 (target_project_id, key),
             )
             if existing is None:
@@ -1083,7 +1083,7 @@ class CrossProjectKnowledgeStore:
                         new_rec.created_at, new_rec.updated_at,
                     ),
                 )
-            else:
+            elif existing["status"] == "archived":
                 # Archived history occupies the natural key, so reactivation
                 # must update that historical row rather than INSERT a second
                 # row that violates the uniqueness constraint. This preserves
