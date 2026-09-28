@@ -419,11 +419,6 @@ class KnowledgeFabricLoader:
                 elif status == "duplicate_conflict":
                     counts["conflicts"] += 1
 
-                # Record insertion, occurrence audit, and catalog metadata
-                # form one atomic unit. A failure in any part must not leave
-                # an apparently loaded record without its audit trail.
-                with self.storage.transaction():
-
         error_count = len(errors)
         self.storage.execute(
             """
