@@ -525,6 +525,7 @@ class KnowledgeFabricLoader:
         in_string = False
         escaped = False
         changed = False
+        string_is_key = False
 
         def next_non_space(index: int) -> int:
             while index < len(line) and line[index].isspace():
@@ -575,6 +576,15 @@ class KnowledgeFabricLoader:
             if not in_string:
                 chars.append(char)
                 if char == '"':
+                    previous = index - 1
+                    while previous >= 0 and line[previous].isspace():
+                        previous -= 1
+                    string_is_key = bool(
+                        stack
+                        and stack[-1] == "object"
+                        and previous >= 0
+                        and line[previous] in "{,"
+                    )
                     in_string = True
                     escaped = False
                 elif char in "{[":
