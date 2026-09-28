@@ -676,6 +676,12 @@ class KnowledgeFabricLoader:
             line,
         )
         if concatenated != line:
+            try:
+                payload = json.loads(concatenated)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+                return concatenated
             candidates.append(concatenated)
 
         # A common exporter form puts the whole expression between JSON
