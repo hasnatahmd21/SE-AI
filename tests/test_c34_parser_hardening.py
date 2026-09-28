@@ -29,3 +29,20 @@ def test_valid_json_document_still_loads(tmp_path: Path):
     result = loader.load_dataset_file(p)
     assert result["errors"] == []
     assert result["inserted"] == 1
+
+
+def test_malformed_code_expression_quotes_are_repaired():
+    line = '{"record_id":"D16-B57-R02","dataset_id":"D16","invalid_example":"Concatenate a client-supplied sort field directly into `ORDER BY " + sort_field + "`."}'
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["record_id"] == "D16-B57-R02"
+    assert "sort_field" in payload["invalid_example"]
+
+
+def test_literal_control_characters_inside_record_strings_are_repaired():
+    line = '{"record_id":"D26-R001","dataset_id":"D27","example":"first\tsecond"}'
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["example"] == "first\tsecond"
