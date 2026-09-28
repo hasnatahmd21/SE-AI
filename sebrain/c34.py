@@ -634,6 +634,18 @@ class KnowledgeFabricLoader:
             return None
 
         candidates: list[str] = []
+        # Some generated records embed a code/string concatenation expression
+        # directly inside a JSON string, e.g. \\"prefix \\" + variable + \\"suffix\\".
+        # This is not valid JSON, but the intended record value is deterministic:
+        # concatenate the literal fragments and expression text into one string.
+        concat_pattern = re.compile(r'"\\s*\\+\\s*(?:"([^"]*)"|([^"\\n]+?))\\s*\\+\\s*"')
+        concatenated = concat_pattern.sub(
+            lambda m: m.group(1) if m.group(1) is not None else m.group(2).strip(),
+            line,
+        )
+        if concatenated != line:
+            candidates.append(concatenated)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
