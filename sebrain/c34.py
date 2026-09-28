@@ -82,6 +82,11 @@ class KnowledgeFabricLoader:
     def __init__(self, storage: Any, datasets_dir: str | Path):
         self.storage = storage
         self.datasets_dir = Path(datasets_dir)
+        # Direct loader users may provide a fresh SQLiteStorage. Initialize it
+        # before schema creation so the loader has a valid persistence layer.
+        initialize = getattr(self.storage, "initialize", None)
+        if callable(initialize):
+            initialize()
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
