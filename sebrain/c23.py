@@ -958,8 +958,16 @@ class SecurityAnalyzer:
                 try:
                     findings.extend(rule.check(source, filename))
                 except Exception as exc:
-                    log.warning("c23.rule_error",
-                                rule=rule.rule_id, error=str(exc))
+                    error = {
+                        "rule_id": rule.rule_id,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                    result.analysis_errors.append(error)
+                    log.warning(
+                        "c23.rule_error",
+                        rule=rule.rule_id,
+                        error=str(exc),
+                    )
             # Run AST rules only on parseable Python
             if (base.endswith(".py") or base.endswith(".pyi")) and result.syntax_ok:
                 for rule in _AST_RULES:
