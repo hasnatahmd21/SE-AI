@@ -603,6 +603,11 @@ class KnowledgeFabricLoader:
                         payload = None
                     if payload is not None:
                         json_values += 1
+                        warnings.append({
+                            "file": path.name,
+                            "line": text.count("\n", 0, start) + 1,
+                            "warning": "repaired narrowly scoped JSON string quoting in records",
+                        })
                         line_no = text.count("\n", 0, start) + 1
                         document = KnowledgeFabricLoader._document_from_payload(
                             payload, line_no
