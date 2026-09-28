@@ -706,7 +706,7 @@ class KnowledgeFabricLoader:
         if not text.strip():
             return "empty", [], [], []
 
-        decoder = json.JSONDecoder()
+        decoder = json.JSONDecoder(strict=False)
         documents: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
