@@ -1017,10 +1017,7 @@ class LearningRepository:
                 tags=["knowledge-candidate", cand.tier.value],
                 provenance=cand.provenance,
             )
-            try:
-                self.ontology.link(RelationKind.CONTAINS, root.id, ce.id)
-            except ValidationError:
-                pass
+            self.ontology.link(RelationKind.CONTAINS, root.id, ce.id)
         return root.id
 
     def load(self, report_id: str, *, project_id: str) -> dict[str, Any] | None:
@@ -1035,8 +1032,11 @@ class LearningRepository:
         entries = self.memory.find(
             kind=MemoryKind.LONG_TERM, status=None,
         )
-        return [dict(e.content) | {"key": e.key, "status": e.status.value}
-                for e in entries]
+        return [
+            dict(e.content) | {"key": e.key, "status": e.status.value}
+            for e in entries
+            if e.status.value == "active"
+        ]
 
 
 # ════════════════════════════════════════════════════════════════════════════
