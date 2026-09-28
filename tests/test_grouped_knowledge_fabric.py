@@ -90,3 +90,39 @@ def test_jsonl_records_are_not_skipped(tmp_path: Path):
         assert report["errors"] == []
         assert report["records"] == 3
         assert brain.fabric_stats()["coverage"]["record_counts"] == {"D58": 3}
+
+
+def test_malformed_record_quotes_are_repaired_and_metadata_fragments_do_not_fail(
+    tmp_path: Path,
+):
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    malformed_record = (
+        '{"record_id":"D58-TEST-QUOTE-001","dataset_id":"D58",'
+        '"topic":"JSON repair","invalid_example":"SELECT * FROM users WHERE name = \'" + "USER_INPUT" + "\'"}'
+    )
+    source = """Header written by the dataset export process.
+D58 validation ledger
+{
+  "dataset_id": "D58",
+  "status": "VALIDATING",
+  "note": "This metadata block is not a record and may contain non-JSON text.
+}
+""" + malformed_record + "\n"
+    (datasets / "D56 - D58").write_text(source, encoding="utf-8")
+
+    with SEBrain(Config(data_dir=tmp_path / ".brain")) as brain:
+        report = brain.connect_knowledge_fabric(datasets)
+        assert report["errors"] == []
+        assert report["records"] == 1
+        assert any(
+            item.get("warning") == "repaired narrowly scoped JSON string quoting in records"
+            for item in report["warnings"]
+        )
+
+        response = brain.ask("JSON repair USER_INPUT", top_k=1)
+        assert response.knowledge
+        assert response.knowledge[0].record_id == "D58-TEST-QUOTE-001"
+        assert response.knowledge[0].raw["invalid_example"] == (
+            "SELECT * FROM users WHERE name = ' + "USER_INPUT" + '"
+        )
