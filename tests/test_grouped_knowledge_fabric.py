@@ -124,6 +124,9 @@ D58 validation ledger
         response = brain.ask("JSON repair USER_INPUT", top_k=1)
         assert response.knowledge
         assert response.knowledge[0].record_id == "D58-TEST-QUOTE-001"
+        assert response.knowledge[0].raw["invalid_example"] == (
+            "SELECT * FROM users WHERE name = '\" + \"USER_INPUT\" + \"'"
+        )
 
 
 def test_grouped_export_allows_prose_between_json_documents(tmp_path: Path):
