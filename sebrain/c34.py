@@ -1164,6 +1164,61 @@ class KnowledgeFabricLoader:
                             ):
                                 candidates.append(concat_candidate)
 
+        # Recover raw double quotes inside string-valued code examples without
+        # re-escaping already-valid JSON escapes. Try each plausible structural
+        # field boundary and accept only a fully valid record-shaped document.
+        field_key_re = re.compile(r'"([A-Za-z_][A-Za-z0-9_]*)":"')
+        field_boundary_re = re.compile(r'","[A-Za-z_][A-Za-z0-9_]*":')
+
+        def escape_unescaped_quotes(value: str) -> tuple[str, bool]:
+            output: list[str] = []
+            changed = False
+            for index, char in enumerate(value):
+                if char != '"':
+                    output.append(char)
+                    continue
+                backslashes = 0
+                cursor = index - 1
+                while cursor >= 0 and value[cursor] == "\\": 
+                    backslashes += 1
+                    cursor -= 1
+                if backslashes % 2 == 0:
+                    output.append('\\"')
+                    changed = True
+                else:
+                    output.append(char)
+            return "".join(output), changed
+
+        for field_match in field_key_re.finditer(line):
+            value_start = field_match.end()
+            boundary_positions = [
+                value_start + match.start()
+                for match in field_boundary_re.finditer(line[value_start:])
+            ]
+            terminal_position = line.rfind('"}')
+            if terminal_position >= value_start:
+                boundary_positions.append(terminal_position)
+            for value_end_candidate in boundary_positions:
+                if value_end_candidate <= value_start:
+                    continue
+                value = line[value_start:value_end_candidate]
+                repaired_value, changed = escape_unescaped_quotes(value)
+                if not changed:
+                    continue
+                field_candidate = (
+                    line[:value_start]
+                    + repaired_value
+                    + line[value_end_candidate:]
+                )
+                try:
+                    payload = json.loads(field_candidate)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and (
+                    payload.get("record_id") or payload.get("id")
+                ):
+                    candidates.append(field_candidate)
+
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
             value_start = field_start + len(field_marker)
