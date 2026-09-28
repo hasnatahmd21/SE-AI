@@ -1,0 +1,73 @@
+from pathlib import Path
+import json
+
+from sebrain import Config, SEBrain
+
+
+def test_grouped_knowledge_fabric_source_is_supported(tmp_path: Path):
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    grouped = {
+        "dataset_manifest": {
+            "dataset_id": "D01",
+            "dataset_name": "Language Fundamentals",
+            "dataset_version": "1.1.0",
+            "schema_version": "KF-1.1",
+            "status": "LOCKED",
+            "language": "English",
+            "authority": "TEST",
+            "scope": "Foundational language knowledge",
+            "purpose": "Integration test",
+        },
+        "records": [
+            {
+                "record_id": "D01-TEST-001",
+                "topic": "Python",
+                "concept": "function",
+                "knowledge_type": "pattern",
+                "question": "How do I define a Python function?",
+                "answer": "Use def followed by the function name and parameters.",
+                "explanation": "A function groups reusable behavior.",
+                "language": "Python",
+                "tags": ["function", "syntax"],
+            }
+        ],
+    }
+    (datasets / "D1 - D5").write_text(
+        json.dumps(grouped, ensure_ascii=False), encoding="utf-8"
+    )
+
+    with SEBrain(Config(data_dir=tmp_path / ".brain")) as brain:
+        report = brain.connect_knowledge_fabric(datasets)
+        assert report["files"] == 1
+        assert report["errors"] == []
+        assert report["found_dataset_ids"] == ["D01"]
+        assert report["missing_dataset_ids"] == [f"D{i:02d}" for i in range(2, 59)]
+
+        catalog = brain.knowledge_catalog()
+        assert catalog[0]["dataset_id"] == "D01"
+        assert catalog[0]["status"] == "LOCKED"
+
+        response = brain.ask("How do I define a Python function?", top_k=1)
+        assert response.knowledge
+        assert response.knowledge[0].record_id == "D01-TEST-001"
+        assert response.evidence
+        assert response.retrieval_method == "lexical"
+
+
+def test_grouped_knowledge_fabric_load_is_idempotent(tmp_path: Path):
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    payload = {
+        "dataset_manifest": {"dataset_id": "D58", "dataset_name": "Test"},
+        "records": [{"record_id": "D58-TEST-001", "answer": "deterministic answer"}],
+    }
+    (datasets / "D56 - D58").write_text(json.dumps(payload), encoding="utf-8")
+
+    with SEBrain(Config(data_dir=tmp_path / ".brain")) as brain:
+        first = brain.connect_knowledge_fabric(datasets)
+        second = brain.connect_knowledge_fabric(datasets)
+        assert first["records"] == 1
+        assert second["records"] == 0
+        assert brain.fabric_stats()["total_records"] == 1
+        assert brain.fabric_stats()["coverage"]["present"] == ["D58"]
