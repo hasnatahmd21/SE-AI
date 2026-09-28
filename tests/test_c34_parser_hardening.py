@@ -73,3 +73,14 @@ def test_real_d16_malformed_quote_examples_load_without_parse_errors(tmp_path: P
     result = loader.load_dataset_file(target)
     assert result["errors"] == []
     assert result["inserted"] > 0
+
+
+def test_real_d21_d25_terminal_quote_repairs_load_without_parse_errors(tmp_path: Path):
+    source = Path("datasets/D21 - D25")
+    assert source.is_file()
+    target = tmp_path / source.name
+    target.write_bytes(source.read_bytes())
+    loader = KnowledgeFabricLoader(SQLiteStorage(":memory:"), tmp_path)
+    result = loader.load_dataset_file(target)
+    assert result["errors"] == []
+    assert result["inserted"] > 2000
