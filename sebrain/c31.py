@@ -1113,10 +1113,6 @@ class CrossProjectKnowledgeStore:
             raise ValidationError(f"no active shared record '{key}'")
         if not rationale:
             raise ValidationError("rationale is required to forget shared")
-        self.storage.execute(
-            "UPDATE c31_knowledge SET status='archived', updated_at=? "
-            "WHERE id=?;", (now_iso(), row["id"]),
-        )
         transition = PromotionRecord(
             action=PromotionAction.REJECT,
             from_scope=KnowledgeScope.SHARED,
@@ -1125,10 +1121,17 @@ class CrossProjectKnowledgeStore:
             actor=actor, rationale=rationale,
             policy_verdict="forget_shared",
         )
-        self._persist_transition(transition)
-        self._audit(project_id="", action="forget_shared",
-                     scope="shared", key=key, result_count=1,
-                     detail=f"actor={actor}")
+        # Archival + audit must be atomic. A failed audit must not silently
+        # leave the shared knowledge archived without a corresponding record.
+        with self.storage.transaction():
+            self.storage.execute(
+                "UPDATE c31_knowledge SET status='archived', updated_at=? "
+                "WHERE id=?;", (now_iso(), row["id"]),
+            )
+            self._persist_transition(transition)
+            self._audit(project_id="", action="forget_shared",
+                         scope="shared", key=key, result_count=1,
+                         detail=f"actor={actor}")
         return transition
 
     # ---- history ----
