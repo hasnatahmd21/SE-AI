@@ -1159,6 +1159,39 @@ class CrossProjectKnowledgeStore:
             ))
         return out
 
+    def history_for_project(
+        self, project_id: str, key: str,
+    ) -> list[PromotionRecord]:
+        """Return only this project's transitions plus global shared transitions.
+
+        Project-owned transition records are isolated by owner_project_id.
+        Shared/global transitions use an empty owner and are visible because
+        they describe shared-state lifecycle rather than another tenant's
+        private transition history.
+        """
+        if not project_id:
+            raise ValidationError("project_id required")
+        rows = self.storage.query(
+            "SELECT * FROM c31_transitions "
+            "WHERE key=? AND (owner_project_id=? OR owner_project_id='') "
+            "ORDER BY ts;",
+            (key, project_id),
+        )
+        return [
+            PromotionRecord(
+                id=r["id"], ts=r["ts"],
+                action=PromotionAction(r["action"]),
+                from_scope=KnowledgeScope(r["from_scope"]),
+                to_scope=KnowledgeScope(r["to_scope"]),
+                owner_project_id=r["owner_project_id"],
+                key=r["key"], actor=r["actor"],
+                rationale=r["rationale"],
+                policy_verdict=r["policy_verdict"],
+                evidence=json.loads(r["evidence_json"] or "{}"),
+            )
+            for r in rows
+        ]
+
     # ---- stats ----
     def stats(self) -> dict[str, Any]:
         r1 = self.storage.query_one(
