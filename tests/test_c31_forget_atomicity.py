@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage
+from sebrain.c01 import SQLiteStorage, TransactionError
 from sebrain.c04 import Confidence
 from sebrain.c31 import CrossProjectKnowledgeStore
 
@@ -19,7 +19,7 @@ def test_c31_forget_shared_rolls_back_archive_on_transition_failure():
         )
         try:
             store.forget_shared("k", actor="tester", rationale="cleanup")
-        except RuntimeError as exc:
+        except TransactionError as exc:
             assert "synthetic transition failure" in str(exc)
         else:
             raise AssertionError("transition failure was swallowed")
