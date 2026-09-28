@@ -875,18 +875,21 @@ class LearningEngine:
 
             if decision.action in (PromotionAction.PROMOTE_TO_PATTERN,
                                     PromotionAction.PROMOTE_TO_GENERAL):
-                if persist and self.memory is not None:
-                    key = self._persist_promoted(cand, decision)
-                    decision.promoted_key = key
-                if len(rep.promoted_ids) < self.max_promoted_per_run:
-                    rep.promoted_ids.append(cand.id)
-                else:
-                    # Over the cap → downgrade to KEEP_PROJECT_SPECIFIC
+                # Enforce the cap BEFORE persistence. Previously an entry could
+                # be written to LONG_TERM even after the per-run promotion cap
+                # had been reached, creating persisted state that the report
+                # correctly described as not promoted.
+                if len(rep.promoted_ids) >= self.max_promoted_per_run:
                     decision.action = PromotionAction.KEEP_PROJECT_SPECIFIC
                     decision.rationale += (
                         f"; not persisted (per-run cap "
                         f"{self.max_promoted_per_run} reached)"
                     )
+                else:
+                    if persist and self.memory is not None:
+                        key = self._persist_promoted(cand, decision)
+                        decision.promoted_key = key
+                    rep.promoted_ids.append(cand.id)
             elif decision.action is PromotionAction.HOLD:
                 rep.held_ids.append(cand.id)
             elif decision.action is PromotionAction.KEEP_PROJECT_SPECIFIC:
@@ -950,10 +953,7 @@ class LearningEngine:
         if entry is None:
             raise ValidationError(f"promoted entry not found: {key}")
         # Archive it (memory store handles status transitions)
-        try:
-            self.memory.archive(entry.id)
-        except Exception as exc:
-            log.warning("c27.demote_archive_failed", error=str(exc))
+        self.memory.archive(entry.id)
         rec = PromotionRecord(
             candidate_id=entry.content.get("candidate_id", ""),
             action=PromotionAction.DEMOTE,
