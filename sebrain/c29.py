@@ -911,24 +911,55 @@ class GovernanceEngine:
             )
         if to_version is None:
             to_version = current - 1
-        if to_version < 1 and current != 1:
+        if to_version < 1:
             raise ValidationError(
                 f"cannot roll back to v{to_version}; no such version"
             )
-        # Find the change id of the current version
+        # Find both the current and target versions. Rollback must leave a
+        # concrete active version; merely archiving the current entry would
+        # otherwise make _active_version() return None.
         entries = self.memory.find(
             kind=MemoryKind.PROJECT, status=None,
             key_like=f"{scope_key_prefix}:{scope}:",
         )
-        cur_change_id = ""
-        for e in entries:
-            if int(e.content.get("version", 0)) == current:
-                cur_change_id = e.content.get("change_id", "")
-                break
-        # Archive the current version entry
-        for e in entries:
-            if int(e.content.get("version", 0)) == current:
+        current_entries = [
+            e for e in entries if int(e.content.get("version", 0)) == current
+        ]
+        target_entries = [
+            e for e in entries if int(e.content.get("version", 0)) == to_version
+        ]
+        if not current_entries:
+            raise ValidationError(
+                f"active version v{current} for scope '{scope}' not found"
+            )
+        if not target_entries:
+            raise ValidationError(
+                f"rollback target v{to_version} for scope '{scope}' not found"
+            )
+        cur_change_id = str(current_entries[0].content.get("change_id", ""))
+        target_content = dict(target_entries[0].content)
+        target_content["final_status"] = PromotionStatus.PROMOTED.value
+        target_content["rollback_restored_from"] = current
+        target_content["rollback_restored_at"] = now_iso()
+
+        # Archive the current active version, then create a fresh active
+        # pointer carrying the exact target version/change identity.
+        for e in current_entries:
+            if e.status.value == "active":
                 self.memory.archive(e.id)
+        self.memory.create(
+            MemoryKind.PROJECT,
+            f"{scope_key_prefix}:{scope}:rollback-active:{now_iso()}",
+            target_content,
+            scope_type=MemoryScope.PROJECT,
+            scope_id=project_id or "default",
+            tags=["self_change", "c29", "rollback-restored"],
+            provenance=Provenance(
+                source="governance_engine",
+                source_type=ProvenanceType.SYSTEM,
+                confidence=Confidence.HIGH,
+            ),
+        )
 
         rec = RollbackRecord(
             change_id=cur_change_id, scope=scope,
