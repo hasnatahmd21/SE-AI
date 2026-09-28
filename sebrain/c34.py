@@ -703,6 +703,28 @@ class KnowledgeFabricLoader:
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
+        # Embedded code examples sometimes contain an intentionally malformed
+        # JSON string such as: SQL ... '" + "USER_INPUT" + "'.  When the
+        # concatenation operator is visibly present, treat the entire final
+        # field value as evidence text and escape its inner quotes verbatim.
+        # This is deliberately narrower than the generic quote heuristic so
+        # ordinary malformed JSON cannot be reinterpreted as executable code.
+        expression_marker = '" + "'
+        if expression_marker in line and field_marker in line and value_end > 0:
+            value_start = line.rfind(field_marker) + len(field_marker)
+            value = line[value_start:value_end]
+            expression_candidate = (
+                line[:value_start]
+                + value.replace('"', '\\\"')
+                + line[value_end:]
+            )
+            try:
+                payload = json.loads(expression_candidate)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+                candidates.append(expression_candidate)
+
         quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
         if quote_repaired is not None:
             candidates.append(quote_repaired)
