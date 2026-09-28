@@ -1083,6 +1083,30 @@ class CrossProjectKnowledgeStore:
                         new_rec.created_at, new_rec.updated_at,
                     ),
                 )
+            else:
+                # Archived history occupies the natural key, so reactivation
+                # must update that historical row rather than INSERT a second
+                # row that violates the uniqueness constraint. This preserves
+                # the row's lineage while making the latest state active.
+                self.storage.execute(
+                    "UPDATE c31_knowledge SET status='active', content=?, tags=?, "
+                    "version_req=?, confidence=?, provenance_json=?, rationale=?, "
+                    "updated_at=? WHERE id=? AND status='archived';",
+                    (
+                        json.dumps(rec.content, default=str),
+                        json.dumps(rec.tags),
+                        json.dumps(rec.version_req),
+                        rec.confidence.value,
+                        json.dumps(Provenance(
+                            source=f'demoted_from_shared_by:{actor}',
+                            source_type=ProvenanceType.AGENT,
+                            reference=rec.id,
+                            confidence=rec.confidence,
+                        ).to_dict(), default=str),
+                        f"demoted from shared: {rationale or 'no reason'}",
+                        now_iso(), existing["id"],
+                    ),
+                )
             # Archive the shared original
             self.storage.execute(
                 "UPDATE c31_knowledge SET status='archived', updated_at=? "
