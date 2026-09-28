@@ -589,6 +589,40 @@ class KnowledgeFabricLoader:
         return repaired
 
     @staticmethod
+    def _repair_record_string_with_embedded_quotes(line: str) -> str | None:
+        """Repair one terminal JSON string field containing raw double quotes.
+
+        This conservative repair only runs for record objects and validates
+        the complete candidate with json.loads before returning it.
+        """
+        if not line.lstrip().startswith("{") or '"record_id"' not in line:
+            return None
+
+        field_pattern = re.compile(
+            r'(?P<prefix>"[A-Za-z_][A-Za-z0-9_]*"\s*:\s*")'
+            r'(?P<value>.*)'
+            r'(?P<suffix>"\s*(?:,|})\s*)$'
+        )
+        match = field_pattern.search(line)
+        if not match:
+            return None
+
+        value = match.group("value")
+        escaped_value = value.replace("\\", "\\\\")
+        escaped_value = re.sub(r'(?<!\\)"', r'\\"', escaped_value)
+        candidate = (
+            line[: match.start("value")]
+            + escaped_value
+            + line[match.start("suffix") :]
+        )
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+            return candidate
+        return None
+    @staticmethod
     def _repair_common_json_defects(line: str) -> str | None:
         """Apply only narrowly scoped, deterministic export repairs."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
