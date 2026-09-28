@@ -66,6 +66,9 @@ def test_real_d16_malformed_quote_examples_load_without_parse_errors(tmp_path: P
     assert source.is_file()
     target = tmp_path / source.name
     target.write_bytes(source.read_bytes())
+    raw_line = target.read_text(encoding="utf-8").splitlines()[92]
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(raw_line)
+    assert repaired is not None
     loader = KnowledgeFabricLoader(SQLiteStorage(":memory:"), tmp_path)
     result = loader.load_dataset_file(target)
     assert result["errors"] == []
