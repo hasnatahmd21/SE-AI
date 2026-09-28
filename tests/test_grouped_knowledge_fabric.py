@@ -43,7 +43,10 @@ def test_grouped_knowledge_fabric_source_is_supported(tmp_path: Path):
         assert report["files"] == 1
         assert report["errors"] == []
         assert report["found_dataset_ids"] == ["D01"]
-        assert report["missing_dataset_ids"] == [f"D{i:02d}" for i in range(2, 59)]
+        assert report["missing_dataset_ids"] == [
+            *(f"D{i:02d}" for i in range(2, 26)),
+            *(f"D{i:02d}" for i in range(27, 59)),
+        ]
 
         catalog = brain.knowledge_catalog()
         assert catalog[0]["dataset_id"] == "D01"
