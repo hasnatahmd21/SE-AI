@@ -600,10 +600,32 @@ class KnowledgeFabricLoader:
             next_index = next_non_space(index + 1)
             next_char = line[next_index] if next_index < len(line) else ""
             container = stack[-1] if stack else "object"
+
+            # A closing brace/bracket inside an embedded code example is not
+            # necessarily the end of the JSON string. It is structural only
+            # when the delimiter itself is followed by a valid JSON boundary.
+            boundary_after = (
+                next_non_space(next_index + 1)
+                if next_index < len(line)
+                else len(line)
+            )
+            boundary_char = (
+                line[boundary_after] if boundary_after < len(line) else ""
+            )
+            closes_container = (
+                next_char == "}"
+                and container == "object"
+                and boundary_char in {"", ",", "]", "}"}
+            )
+            closes_array = (
+                next_char == "]"
+                and container == "array"
+                and boundary_char in {"", ",", "]", "}"}
+            )
             closes = (
                 next_char in {":", ""}
-                or (next_char == "}" and container == "object")
-                or (next_char == "]" and container == "array")
+                or closes_container
+                or closes_array
                 or (next_char == "," and comma_is_structural(next_index))
             )
             if closes:
@@ -702,6 +724,18 @@ class KnowledgeFabricLoader:
 
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
+
+        # Some exports contain a missing colon between a quoted object key and
+        # its quoted value. Repair only this exact shape, and only accept it
+        # after json.loads() confirms a record-shaped object.
+        missing_colon = re.sub(
+            r'("(?:(?:\\.)|[^"\\])+")\\s+(")',
+            r'\\1: \\2',
+            line,
+            count=1,
+        )
+        if missing_colon != line:
+            candidates.append(missing_colon)
 
         # Embedded code examples sometimes contain an intentionally malformed
         # JSON string such as: SQL ... '" + "USER_INPUT" + "'.  When the
