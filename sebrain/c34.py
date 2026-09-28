@@ -1082,7 +1082,7 @@ class KnowledgeFabricLoader:
                         if isinstance(payload, dict) and (
                             payload.get("record_id") or payload.get("id")
                         ) and key in payload:
-                            candidates.append(candidate)
+                            candidates.insert(0, candidate)
                     boundary = line.find('","', boundary + 3)
                 key_start = line.find(marker, key_start + len(marker))
 
