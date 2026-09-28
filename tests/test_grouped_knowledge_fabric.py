@@ -197,3 +197,14 @@ def test_json_quote_repair_helper_recovers_embedded_code_quotes():
     assert payload["invalid_example"] == (
         "SELECT * FROM users WHERE name = '\" + \"USER_INPUT\" + \"'"
     )
+
+
+def test_json_quote_repair_chains_decoder_position_and_quote_state():
+    line = (
+        '{"record_id":"D32-POSITION-REG-001","dataset_id":"D32",'
+        '"source_code":"import _ "net/http/pprof"\\n// diagnostic"}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["source_code"] == 'import _ "net/http/pprof"\\n// diagnostic'
