@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage, ValidationError
+from sebrain.c01 import SQLiteStorage, ValidationError, TransactionError
 from sebrain.c02 import Ontology
 from sebrain.c04 import MemoryStore
 from sebrain.c29 import GovernanceRepository, GovernanceReport
@@ -22,7 +22,7 @@ def test_c29_repository_rolls_back_memory_when_ontology_save_fails():
         )
         try:
             repo.save(report, project_id="p1")
-        except ValidationError as exc:
+        except TransactionError as exc:
             assert "synthetic ontology failure" in str(exc)
         else:
             raise AssertionError("ontology failure was swallowed")
