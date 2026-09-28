@@ -58,7 +58,7 @@ Kaggle validation must establish:
 
 1. C01–C36 imports and compilation succeed.
 2. The complete test suite passes.
-3. D01–D58 coverage is complete.
+3. Coverage is complete for all 57 planned dataset IDs (D01–D58, intentionally excluding D26).
 4. The real grouped dataset exports load without errors.
 5. Retrieval returns evidence linked to source records.
 6. No fabricated records are introduced to satisfy a fixed count.
