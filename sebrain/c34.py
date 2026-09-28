@@ -753,7 +753,7 @@ class KnowledgeFabricLoader:
 
             try:
                 payload, end = decoder.raw_decode(text, start)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
                 # Before discarding a malformed line, apply the loader's
                 # deliberately narrow quote-repair rule to record objects.
                 # This preserves the ability to recover generated code/prose
