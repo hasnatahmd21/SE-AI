@@ -603,13 +603,6 @@ class KnowledgeFabricLoader:
         if field_start >= 0 and value_end > field_start + len(field_marker):
             value_start = field_start + len(field_marker)
             value = line[value_start:value_end]
-            # Some exports accidentally preserve a Python/SQL-style quoted
-            # concatenation inside a JSON string, e.g. '" + "USER_INPUT" + "'.
-            # Normalize only that exact structural artifact; preserve all other
-            # text verbatim and then validate the resulting JSON.
-            concat_marker = chr(34) + " + " + chr(34)
-            if concat_marker in value:
-                value = value.replace(concat_marker, "")
             escaped_value = value.replace('"', '\\"')
             candidate = line[:value_start] + escaped_value + line[value_end:]
             try:
