@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DATASETS = ROOT / "datasets"
 
 
-def test_grouped_fabric_exports_are_discovered():
-    with SEBrain(Config(data_dir=ROOT / ".pytest_sebrain_layout")) as brain:
+def test_grouped_fabric_exports_are_discovered(tmp_path: Path):
+    with SEBrain(Config(data_dir=tmp_path / "brain")) as brain:
         report = brain.connect_knowledge_fabric(DATASETS)
 
     assert report["files"] == 13
@@ -20,8 +20,8 @@ def test_grouped_fabric_exports_are_discovered():
     assert "D26" in report["missing_dataset_ids"]
 
 
-def test_real_fabric_query_path_uses_c34_c36_c35():
-    with SEBrain(Config(data_dir=ROOT / ".pytest_sebrain_query")) as brain:
+def test_real_fabric_query_path_uses_c34_c36_c35(tmp_path: Path):
+    with SEBrain(Config(data_dir=tmp_path / "brain")) as brain:
         report = brain.connect_knowledge_fabric(DATASETS)
         response = brain.ask("database migration regression", top_k=3)
 
