@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage
+from sebrain.c01 import SQLiteStorage, TransactionError
 from sebrain.c04 import Confidence
 from sebrain.c31 import CrossProjectKnowledgeStore
 
@@ -18,7 +18,7 @@ def test_c31_put_rolls_back_knowledge_when_audit_fails():
         )
         try:
             store.put_project("project-a", "k", {"v": 1})
-        except RuntimeError as exc:
+        except TransactionError as exc:
             assert "synthetic audit failure" in str(exc)
         else:
             raise AssertionError("audit failure was swallowed")
