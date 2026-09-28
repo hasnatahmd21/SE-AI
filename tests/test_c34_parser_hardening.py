@@ -84,3 +84,17 @@ def test_real_d21_d25_terminal_quote_repairs_load_without_parse_errors(tmp_path:
     result = loader.load_dataset_file(target)
     assert result["errors"] == []
     assert result["inserted"] > 2000
+
+def test_json_quote_repair_handles_compact_variable_concatenation():
+    line = (
+        '{"record_id":"D16-B69-R02","dataset_id":"D16",'
+        '"invalid_example":"SELECT * FROM users WHERE user_id = \'"+user_input+"\'","'
+        'problem":"Untrusted input can alter database query semantics."}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["record_id"] == "D16-B69-R02"
+    assert payload["invalid_example"] == (
+        'SELECT * FROM users WHERE user_id = \'"+user_input+"\''
+    )
