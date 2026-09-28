@@ -1114,15 +1114,16 @@ class GovernanceRepository:
         if not project_id:
             raise ValidationError("project_id required")
         key = f"governance_report:{report.id}"
-        self.memory.create(
-            MemoryKind.PROJECT, key, report.to_dict(),
-            scope_type=MemoryScope.PROJECT, scope_id=project_id,
-            tags=["governance", "c29", report.final_status.value],
-            provenance=report.provenance,
-        )
-        if self.ontology is None:
-            return key
-        ent = self.ontology.add(
+        with self.memory.storage.transaction():
+            self.memory.create(
+                MemoryKind.PROJECT, key, report.to_dict(),
+                scope_type=MemoryScope.PROJECT, scope_id=project_id,
+                tags=["governance", "c29", report.final_status.value],
+                provenance=report.provenance,
+            )
+            if self.ontology is None:
+                return key
+            ent = self.ontology.add(
             EntityKind.DECISION,
             _short(
                 f"Governance {report.change_id[:8]} "
