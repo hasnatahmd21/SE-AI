@@ -1127,6 +1127,21 @@ class KnowledgeFabricLoader:
             if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
                 candidates.append(expression_candidate)
 
+        # Preserve malformed-but-intentional string-concatenation examples such
+        # as SQL/Python snippets containing the literal token " + ". Escaping
+        # only that exact token is deliberately narrow; the full candidate
+        # must still parse as a record before it can be accepted.
+        expression_repaired = line.replace('" + "', '\\" + \\"')
+        if expression_repaired != line:
+            try:
+                payload = json.loads(expression_repaired)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and (
+                payload.get("record_id") or payload.get("id")
+            ):
+                candidates.append(expression_repaired)
+
         quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
         if quote_repaired is not None:
             candidates.append(quote_repaired)
