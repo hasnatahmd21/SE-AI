@@ -126,3 +126,27 @@ D58 validation ledger
         assert response.knowledge[0].raw["invalid_example"] == (
             "SELECT * FROM users WHERE name = ' + "USER_INPUT" + '"
         )
+
+def test_grouped_export_allows_prose_between_json_documents(tmp_path: Path):
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    grouped = """D26 B41-B42 generated knowledge export.
+
+{"record_id":"D26-TEST-001","dataset_id":"D26","topic":"parser","answer":"first"}
+
+Additional explanatory text between records.
+
+{"record_id":"D26-TEST-002","dataset_id":"D26","topic":"parser","answer":"second"}
+
+D26 final-range note.
+"""
+    (datasets / "D26 - D30").write_text(grouped, encoding="utf-8")
+
+    with SEBrain(Config(data_dir=tmp_path / ".brain")) as brain:
+        report = brain.connect_knowledge_fabric(datasets)
+        assert report["errors"] == []
+        assert report["found_dataset_ids"] == ["D26"]
+        assert brain.fabric_stats()["total_records"] == 2
+        response = brain.ask("parser first", top_k=1)
+        assert response.knowledge
+
