@@ -113,3 +113,4 @@ def test_json_quote_repair_handles_embedded_go_code_quotes():
     assert payload["record_id"] == "D32-CODE-QUOTE-001"
     assert 'sql.Open("driver-name", dsn)' in payload["source_code"]
     assert 'errors.New("unsupported scheme")' in payload["source_code"]
+
