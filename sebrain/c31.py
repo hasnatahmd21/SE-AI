@@ -352,9 +352,66 @@ def _migration_031_cross_project(storage: SQLiteStorage) -> None:
     )
 
 
+def _migration_032_allow_archived_key_history(storage: SQLiteStorage) -> None:
+    """Allow archived/project history rows to coexist with one active row.
+
+    C31 history must preserve prior project records while allowing a new active
+    record for the same (scope, owner_project_id, key). The original table-level
+    UNIQUE constraint prevented that valid lifecycle transition. Rebuild the
+    table once, preserve all rows, then enforce uniqueness only for active rows.
+    """
+    columns = [
+        "id", "scope", "owner_project_id", "key", "content", "tags",
+        "version_req", "confidence", "provenance_json", "rationale",
+        "status", "created_at", "updated_at",
+    ]
+    storage.execute("""
+        CREATE TABLE c31_knowledge_new (
+            id                TEXT PRIMARY KEY,
+            scope             TEXT NOT NULL,
+            owner_project_id  TEXT NOT NULL DEFAULT '',
+            key               TEXT NOT NULL,
+            content           TEXT NOT NULL DEFAULT '{}',
+            tags              TEXT NOT NULL DEFAULT '[]',
+            version_req       TEXT NOT NULL DEFAULT '{}',
+            confidence        TEXT NOT NULL DEFAULT 'unknown',
+            provenance_json   TEXT NOT NULL DEFAULT '{}',
+            rationale         TEXT NOT NULL DEFAULT '',
+            status            TEXT NOT NULL DEFAULT 'active',
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL
+        );
+    """)
+    storage.execute(
+        "INSERT INTO c31_knowledge_new ("
+        + ", ".join(columns)
+        + ") SELECT "
+        + ", ".join(columns)
+        + " FROM c31_knowledge;"
+    )
+    storage.execute("DROP TABLE c31_knowledge;")
+    storage.execute("ALTER TABLE c31_knowledge_new RENAME TO c31_knowledge;")
+    storage.execute(
+        "CREATE INDEX IF NOT EXISTS idx_c31_scope ON c31_knowledge(scope);"
+    )
+    storage.execute(
+        "CREATE INDEX IF NOT EXISTS idx_c31_owner ON c31_knowledge(owner_project_id);"
+    )
+    storage.execute(
+        "CREATE INDEX IF NOT EXISTS idx_c31_key ON c31_knowledge(key);"
+    )
+    storage.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_c31_active_scope_owner_key
+        ON c31_knowledge(scope, owner_project_id, key)
+        WHERE status='active';
+    """)
+
+
 C31_MIGRATIONS: list[Migration] = [
     Migration(version=31, name="cross_project_knowledge",
               up=_migration_031_cross_project),
+    Migration(version=32, name="allow_archived_key_history",
+              up=_migration_032_allow_archived_key_history),
 ]
 
 _ALL_MIGRATIONS: list[Migration] = sorted(
