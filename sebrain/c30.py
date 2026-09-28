@@ -1205,16 +1205,17 @@ class CrossLangRepository:
         if not project_id:
             raise ValidationError("project_id required")
         key = f"crosslang_report:{report.id}"
-        self.memory.create(
-            MemoryKind.PROJECT, key, report.to_dict(),
-            scope_type=MemoryScope.PROJECT, scope_id=project_id,
-            tags=["crosslang", "c30",
-                  report.language.value if report.language else "unknown"],
-            provenance=report.provenance,
-        )
-        if self.ontology is None:
-            return key
-        ent = self.ontology.add(
+        with self.memory.storage.transaction():
+            self.memory.create(
+                MemoryKind.PROJECT, key, report.to_dict(),
+                scope_type=MemoryScope.PROJECT, scope_id=project_id,
+                tags=["crosslang", "c30",
+                      report.language.value if report.language else "unknown"],
+                provenance=report.provenance,
+            )
+            if self.ontology is None:
+                return key
+            ent = self.ontology.add(
             EntityKind.MODULE,
             _short(
                 f"CrossLang {report.id[:8]} "
