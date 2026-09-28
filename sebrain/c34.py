@@ -1097,20 +1097,6 @@ class KnowledgeFabricLoader:
         # This is deliberately narrower than the generic quote heuristic so
         # ordinary malformed JSON cannot be reinterpreted as executable code.
         expression_marker = '" + "'
-        # JSONL exports may contain an escaped quote sequence that is
-        # syntactically valid only after the surrounding string is repaired.
-        # Candidate generation below remains evidence-driven: every candidate
-        # is accepted only after json.loads() succeeds.
-        if "\\"" in line:
-            escaped_candidate = line.replace("\\\"", '"')
-            try:
-                escaped_payload = json.loads(escaped_candidate)
-            except json.JSONDecodeError:
-                escaped_payload = None
-            if isinstance(escaped_payload, dict) and (
-                escaped_payload.get("record_id") or escaped_payload.get("id")
-            ):
-                candidates.append(escaped_candidate)
 
         if expression_marker in line and field_marker in line and value_end > 0:
             value_start = line.rfind(field_marker) + len(field_marker)
