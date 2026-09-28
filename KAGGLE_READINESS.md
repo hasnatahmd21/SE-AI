@@ -1,16 +1,15 @@
 # Kaggle Readiness — SE Brain
 
-> **CURRENT STATUS: BLOCKED — NOT READY FOR KAGGLE**
+> **CURRENT STATUS: IN PROGRESS — D26 INTENTIONALLY UNPLANNED**
 >
-> The repository CI currently verifies C01–C36 compilation/tests successfully,
-> but the real D01–D58 fabric validation reports **D26 missing**. The grouped
-> source datasets/D 26 - D30 currently contains D27–D30 records and no D26
-> records. No synthetic D26 records are created to satisfy coverage.
+> The repository contains the intended Knowledge Fabric datasets. D26 is not
+> part of the dataset plan; the grouped `D 26 - D30` source contains D27–D30
+> records. The system therefore must not fabricate D26 records or report D26 as
+> a missing expected dataset.
 >
-> This is a real data-coverage blocker. Kaggle transition must wait until the
-> authoritative D26 dataset export is restored/added and the complete
-> C34 → C36 → C35 → SEBrain validation passes with zero loader errors and
-> complete D01–D58 coverage.
+> Kaggle transition remains gated on the broader repository completion and
+> hardening checks, including zero loader errors, real retrieval, Brain wiring,
+> UI/API validation, integration tests, and end-to-end verification.
 
 ## Purpose
 
