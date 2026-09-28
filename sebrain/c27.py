@@ -976,15 +976,19 @@ class LearningRepository:
         if not project_id:
             raise ValidationError("project_id required")
         key = f"learning_report:{report.id}"
-        self.memory.create(
-            MemoryKind.PROJECT, key, report.to_dict(),
-            scope_type=MemoryScope.PROJECT, scope_id=project_id,
-            tags=["learning", "c27"],
-            provenance=report.provenance,
-        )
-        if self.ontology is None:
-            return key
-        root = self.ontology.add(
+        # The report memory entry and all ontology nodes/links form one
+        # persistence unit. If ontology persistence fails, the report must
+        # not remain partially committed in memory.
+        with self.memory.storage.transaction():
+            self.memory.create(
+                MemoryKind.PROJECT, key, report.to_dict(),
+                scope_type=MemoryScope.PROJECT, scope_id=project_id,
+                tags=["learning", "c27"],
+                provenance=report.provenance,
+            )
+            if self.ontology is None:
+                return key
+            root = self.ontology.add(
             EntityKind.EXPERIENCE,
             _short(
                 f"Learning {report.id[:8]} "
