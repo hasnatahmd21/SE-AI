@@ -57,5 +57,5 @@ def test_json_quote_repair_handles_database_security_sql_examples():
     payload = json.loads(repaired)
     assert payload["record_id"] == "D16-B20-SEC-0002"
     assert payload["invalid_example"] == (
-        "SELECT * FROM users WHERE username = '" + "USER_INPUT" + "'"
+        "SELECT * FROM users WHERE username = '\" + \"USER_INPUT\" + \"'"
     )
