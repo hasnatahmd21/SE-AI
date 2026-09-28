@@ -481,7 +481,7 @@ class KnowledgeFabricLoader:
                     counts["seen"] - counts["errors"],
                     total,
                     counts["errors"],
-                    int(counts["errors"] == 0),
+                    int(counts["errors"] == 0 and error_count == 0),
                     now_iso(),
                 ),
             )
