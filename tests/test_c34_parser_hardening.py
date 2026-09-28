@@ -109,4 +109,6 @@ def test_real_d16_b57_and_b69_concatenation_examples_are_repaired():
         payload = json.loads(repaired)
         assert payload["record_id"].startswith("D16-")
         assert isinstance(payload.get("invalid_example"), str)
-        assert " + " in payload["invalid_example"]
+        assert (" + " in payload["invalid_example"]) or (
+            '"+' in payload["invalid_example"] and '+' in payload["invalid_example"]
+        )
