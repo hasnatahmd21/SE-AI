@@ -516,16 +516,16 @@ class KnowledgeFabricLoader:
 
     @staticmethod
     def _repair_unescaped_json_quotes(line: str) -> str | None:
-        """Repair only provable quote defects inside JSON string values."""
+        """Repair provable quote defects while preserving embedded code text."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
             return None
 
         chars: list[str] = []
-        stack: list[str] = []
+        stack: list[dict[str, Any]] = []
         in_string = False
+        string_is_key = False
         escaped = False
         changed = False
-        string_is_key = False
 
         def next_non_space(index: int) -> int:
             while index < len(line) and line[index].isspace():
@@ -551,100 +551,75 @@ class KnowledgeFabricLoader:
             if next_index >= len(line):
                 return False
             next_char = line[next_index]
-            container = stack[-1] if stack else "object"
-
-            if next_char == '"':
+            container = stack[-1]["type"] if stack else "object"
+            if container == "object":
+                if next_char != '"':
+                    return False
                 end_index = quoted_token_end(next_index)
                 if end_index is None:
                     return False
                 after = next_non_space(end_index + 1)
-                if container == "object":
-                    return after < len(line) and line[after] == ":"
-                return True
-
-            if container == "object":
-                # An object boundary after a value must begin the next key.
-                return False
-
-            return (
-                next_char in {"{", "[", "-"}
-                or next_char.isdigit()
-                or next_char in {"t", "f", "n"}
-            )
+                return after < len(line) and line[after] == ":"
+            return next_char in "{[-" or next_char.isdigit() or next_char in "tfn"
 
         for index, char in enumerate(line):
-            if not in_string:
-                chars.append(char)
-                if char == '"':
-                    previous = index - 1
-                    while previous >= 0 and line[previous].isspace():
-                        previous -= 1
-                    string_is_key = bool(
-                        stack
-                        and stack[-1] == "object"
-                        and previous >= 0
-                        and line[previous] in "{,"
-                    )
-                    in_string = True
+            if in_string:
+                if escaped:
+                    chars.append(char)
                     escaped = False
-                elif char in "{[":
-                    stack.append("object" if char == "{" else "array")
-                elif char in "}]":
-                    expected = "object" if char == "}" else "array"
-                    if stack and stack[-1] == expected:
-                        stack.pop()
+                    continue
+                if char == "\\":
+                    chars.append(char)
+                    escaped = True
+                    continue
+                if char != '"':
+                    chars.append(char)
+                    continue
+
+                next_index = next_non_space(index + 1)
+                next_char = line[next_index] if next_index < len(line) else ""
+                if string_is_key:
+                    closes = next_char == ":"
+                else:
+                    container = stack[-1]["type"] if stack else "object"
+                    closes = (
+                        next_char in {"", ",", "}", "]"}
+                        and (
+                            container == "array"
+                            or next_char in {"", ",", "}", "]"}
+                        )
+                    )
+                if closes:
+                    chars.append('"')
+                    in_string = False
+                    string_is_key = False
+                else:
+                    chars.append("\\"")
+                    changed = True
                 continue
 
-            if escaped:
-                chars.append(char)
+            chars.append(char)
+            if char == '"':
+                container = stack[-1] if stack else {"type": "object", "expect_key": True}
+                string_is_key = (
+                    container["type"] == "object" and container.get("expect_key", False)
+                )
+                in_string = True
                 escaped = False
-                continue
-            if char == "\\":
-                chars.append(char)
-                escaped = True
-                continue
-            if char != '"':
-                chars.append(char)
-                continue
-
-            next_index = next_non_space(index + 1)
-            next_char = line[next_index] if next_index < len(line) else ""
-            container = stack[-1] if stack else "object"
-
-            # A closing brace/bracket inside an embedded code example is not
-            # necessarily the end of the JSON string. It is structural only
-            # when the delimiter itself is followed by a valid JSON boundary.
-            boundary_after = (
-                next_non_space(next_index + 1)
-                if next_index < len(line)
-                else len(line)
-            )
-            boundary_char = (
-                line[boundary_after] if boundary_after < len(line) else ""
-            )
-            closes_container = (
-                next_char == "}"
-                and container == "object"
-                and boundary_char in {"", ",", "]", "}"}
-            )
-            closes_array = (
-                next_char == "]"
-                and container == "array"
-                and boundary_char in {"", ",", "]", "}"}
-            )
-            closes = (
-                (string_is_key and next_char == ":")
-                or (not string_is_key and next_char == "")
-                or closes_container
-                or closes_array
-                or (next_char == "," and comma_is_structural(next_index))
-            )
-            if closes:
-                chars.append('"')
-                in_string = False
-            else:
-                chars.append('\\"')
-                changed = True
+            elif char == "{":
+                stack.append({"type": "object", "expect_key": True})
+            elif char == "[":
+                stack.append({"type": "array", "expect_key": False})
+            elif char in "}]":
+                expected = "object" if char == "}" else "array"
+                if stack and stack[-1]["type"] == expected:
+                    stack.pop()
+            elif char == ":":
+                if stack and stack[-1]["type"] == "object":
+                    stack[-1]["expect_key"] = False
+            elif char == ",":
+                if stack and stack[-1]["type"] == "object":
+                    stack[-1]["expect_key"] = True
 
         if not changed or in_string:
             return None
