@@ -169,7 +169,7 @@ def test_json_quote_repair_preserves_embedded_array_and_function_quotes():
         ),
     ]
     expected = [
-        'validate_non_null(orders, "order_id")\\n'
+        'validate_non_null(orders, "order_id")\n'
         'validate_allowed_values(orders, "status", ["created", "paid"])',
         'raise ValueError("partition_count must be positive")',
     ]
