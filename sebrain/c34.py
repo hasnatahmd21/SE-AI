@@ -1081,7 +1081,7 @@ class KnowledgeFabricLoader:
                             payload = None
                         if isinstance(payload, dict) and (
                             payload.get("record_id") or payload.get("id")
-                        ):
+                        ) and key in payload:
                             candidates.append(candidate)
                     boundary = line.find('","', boundary + 3)
                 key_start = line.find(marker, key_start + len(marker))
@@ -1263,10 +1263,18 @@ class KnowledgeFabricLoader:
                 value_start = field_match.end()
                 boundary_match = field_boundary_re.search(line, value_start)
                 if boundary_match is not None:
-                    add_field_candidate(value_start, boundary_match.start())
+                    add_field_candidate(
+                        field_match.group(1),
+                        value_start,
+                        boundary_match.start(),
+                    )
                 terminal_position = line.rfind('"}')
                 if terminal_position >= value_start:
-                    add_field_candidate(value_start, terminal_position)
+                    add_field_candidate(
+                        field_match.group(1),
+                        value_start,
+                        terminal_position,
+                    )
 
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
