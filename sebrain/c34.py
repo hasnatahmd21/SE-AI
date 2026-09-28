@@ -787,7 +787,15 @@ class KnowledgeFabricLoader:
                         i = line_end
                         continue
 
-                # The repair attempt failed for this physical line.
+                # The repair attempt failed. Surface the malformed
+                # candidate instead of silently discarding it; otherwise a
+                # partially loaded dataset could be reported as clean.
+                errors.append({
+                    "file": path.name,
+                    "line": text.count("\n", 0, start) + 1,
+                    "error": "invalid JSON value",
+                    "detail": str(getattr(locals().get("exc"), "msg", "") or "JSON decode failed"),
+                })
                 # Do not scan nested braces inside the malformed value as if
                 # they were independent top-level records; that can fabricate
                 # records from fields such as test_input or code examples.
