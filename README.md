@@ -5,14 +5,14 @@ SE Brain is a modular software-engineering foundation with C01–C33 core engine
 ## Architecture
 
 - **C01–C33:** core software-engineering engines.
-- **C34:** persistent D01–D58 Knowledge Fabric loader with provenance, validation, duplicate/conflict auditing and idempotent SQLite loading.
+- **C34:** persistent intended Knowledge Fabric loader with provenance, validation, duplicate/conflict auditing and idempotent SQLite loading.
 - **C35:** Brain/Dataset Bridge combining requirement understanding, intent/risk analysis and evidence-linked retrieval.
 - **C36:** deterministic local lexical retrieval; no external LLM or paid API is required for the Knowledge Fabric retrieval path.
 
 ### Knowledge path
 
 ```text
-D01–D58 grouped source files
+intended grouped Knowledge Fabric source files (D26 intentionally unplanned)
           │
           ▼
         C34
@@ -40,7 +40,7 @@ The Brain facade exposes this path through `connect_knowledge_fabric()`,
 
 ```text
 sebrain/       # canonical package: C01–C36 + UI
-datasets/      # grouped D01–D58 Knowledge Fabric sources
+datasets/      # grouped Knowledge Fabric sources (D26 intentionally unplanned)
 tests/         # unit and integration tests
 scripts/       # repository validation commands
 run_ui.py
@@ -81,7 +81,7 @@ with SEBrain(Config(data_dir=Path("./.sebrain"))) as brain:
 python scripts/validate_knowledge_fabric.py
 ```
 
-This validates the actual D01–D58 repository export through the same C34 → C36
+This validates the actual repository Knowledge Fabric export through the same C34 → C36
 → C35 path used by the Brain. It requires complete dataset-ID coverage and zero
 loader errors, while intentionally avoiding an artificial fixed record-count
 requirement.
@@ -102,4 +102,4 @@ python -m pytest -q
 ```
 
 GitHub Actions runs the package tests on Python 3.11 and 3.12 and separately
-validates the real D01–D58 Knowledge Fabric export on Python 3.12.
+validates the real repository Knowledge Fabric export on Python 3.12.
