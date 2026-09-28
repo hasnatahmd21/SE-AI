@@ -10,51 +10,108 @@ from pathlib import Path
 import gradio as gr
 
 from .c01 import Config, SEBrainApp
-from .c35 import BrainDatasetBridge
 from .c34 import KnowledgeFabricLoader
+from .c35 import BrainDatasetBridge
 
 
-def build_app(datasets_dir: str | Path = "./datasets", data_dir: str | Path = "./.sebrain_ui"):
+def build_app(
+    datasets_dir: str | Path = "./datasets",
+    data_dir: str | Path = "./.sebrain_ui",
+):
     config = Config(data_dir=Path(data_dir), log_level="WARNING")
     brain = SEBrainApp(config=config)
     brain.start()
+
     loader = KnowledgeFabricLoader(brain.storage, datasets_dir)
     report = loader.load_all_datasets()
     bridge = BrainDatasetBridge(brain=brain, loader=loader)
 
     def analyze(task: str) -> str:
-        if not (task or "").strip(): return "Please enter a coding task."
+        if not (task or "").strip():
+            return "Please enter a coding task."
         return bridge.answer(task, top_k=5).to_english()
 
     def stats() -> str:
-        s = loader.stats()
-        lines = ["SE BRAIN — KNOWLEDGE FABRIC", "", f"Total records: {s['total_records']}", f"Datasets: {len(s['datasets'])}", ""]
-        lines.append("DATASETS")
-        lines.extend(f"  {k}: {v:,}" for k, v in s["datasets"].items())
-        lines.append("")
-        lines.append("LANGUAGES")
-        lines.extend(f"  {k}: {v:,}" for k, v in s["languages"].items())
+        current = loader.stats()
+        coverage = current["coverage"]
+        lines = [
+            "SE BRAIN — KNOWLEDGE FABRIC",
+            "",
+            f"Total indexed records: {current['total_records']:,}",
+            f"Datasets present: {coverage['dataset_count']}/58",
+            f"Missing datasets: {', '.join(coverage['missing']) or 'None'}",
+            "",
+            "DATASETS",
+            *[
+                f"  {dataset_id}: {count:,}"
+                for dataset_id, count in current["datasets"].items()
+            ],
+            "",
+            "LANGUAGES",
+            *[
+                f"  {language}: {count:,}"
+                for language, count in current["languages"].items()
+            ],
+            "",
+            "SOURCE FILES",
+            *[
+                (
+                    f"  {source['source_file']}: "
+                    f"{source['inserted']:,} inserted, "
+                    f"{source['duplicate_records']:,} duplicates, "
+                    f"{source['conflicts']:,} conflicts, "
+                    f"{source['errors']:,} errors"
+                )
+                for source in current["sources"]
+            ],
+        ]
         return "\n".join(lines)
 
     css = """
     body,.gradio-container{background:#0a0a0f!important;color:#e8e8f0!important}
     textarea{background:#05050a!important;color:#00ff88!important;font-family:monospace!important}
     """
+
     with gr.Blocks(css=css, title="SE Brain") as demo:
-        gr.Markdown("# ◈ SE BRAIN ◈\nAutonomous Software Engineering Brain · Knowledge Fabric")
+        gr.Markdown(
+            "# ◈ SE BRAIN ◈\n"
+            "Autonomous Software Engineering Brain · Knowledge Fabric"
+        )
+
         with gr.Tab("ANALYZE"):
-            task = gr.Textbox(label="Task Input", lines=6, placeholder="Build a FastAPI REST API with JWT authentication...")
+            task = gr.Textbox(
+                label="Task Input",
+                lines=6,
+                placeholder="Build a FastAPI REST API with JWT authentication...",
+            )
             with gr.Row():
                 run = gr.Button("ANALYZE TASK", variant="primary")
                 clear = gr.Button("CLEAR")
-            output = gr.Textbox(label="Analysis Output", lines=32, show_copy_button=True)
+            output = gr.Textbox(
+                label="Analysis Output",
+                lines=32,
+                show_copy_button=True,
+            )
             run.click(analyze, task, output)
             clear.click(lambda: ("", ""), outputs=[task, output])
+
         with gr.Tab("DATASETS"):
-            gr.Markdown(f"Loaded **{report['records']:,}** records from **{report['files']}** JSONL files.")
+            gr.Markdown(
+                f"Loaded **{report['records']:,}** new records from "
+                f"**{report['files']}** source files."
+            )
+            if report["missing_dataset_ids"]:
+                gr.Markdown(
+                    "⚠️ Missing expected datasets: "
+                    + ", ".join(report["missing_dataset_ids"])
+                )
+            else:
+                gr.Markdown("✅ D01–D58 dataset coverage is complete.")
+
             refresh = gr.Button("REFRESH STATS", variant="primary")
-            stats_out = gr.Textbox(lines=30, show_copy_button=True)
+            stats_out = gr.Textbox(lines=34, show_copy_button=True)
             refresh.click(stats, outputs=stats_out)
+
     return demo, brain
 
 
@@ -67,7 +124,12 @@ def main() -> None:
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args()
     demo, _ = build_app(args.datasets, args.data_dir)
-    demo.launch(server_name=args.host, server_port=args.port, share=args.share)
+    demo.launch(
+        server_name=args.host,
+        server_port=args.port,
+        share=args.share,
+    )
+
 
 if __name__ == "__main__":
     main()
