@@ -83,14 +83,12 @@ class BrainDatasetBridge:
         if not query:
             return BrainResponse(answer="No query provided.")
 
-        try:
-            spec = self.parser.parse(query)
-        except Exception:
-            spec = None
-        try:
-            intent_ctx = self.intent_engine.analyze(query, project_id="bridge")
-        except Exception:
-            intent_ctx = None
+        spec = self.parser.parse(query)
+        intent_ctx = self.intent_engine.analyze(
+            query,
+            project_id="bridge",
+            spec=spec,
+        )
 
         rag_ctx = self.rag.retrieve(
             query,
