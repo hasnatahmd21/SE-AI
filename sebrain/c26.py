@@ -449,7 +449,11 @@ class Harvester:
                     observed_at=e.updated_at,
                 ))
         except Exception as exc:
-            log.warning("c26.memory_harvest_error", error=str(exc))
+            # A failed memory read is not equivalent to "no historical signals".
+            # Surface the failure so extraction cannot silently degrade.
+            raise ValidationError(
+                f"C26 memory harvest failed for project {project_id}: {exc}"
+            ) from exc
         return signals[: self.max_signals]
 
     # ---- duck-typed adapters ----
@@ -1070,6 +1074,10 @@ class ExperienceExtractor:
         """Persist a promoted experience to C04 experience memory."""
         if self.memory is None:
             raise ValidationError("memory not attached")
+        if record.decision.status is not PromotionStatus.PROMOTED:
+            raise ValidationError(
+                "only PROMOTED experience records may be persisted to memory"
+            )
         cand = record.candidate
         key = f"experience:{_digest(cand.id)[7:23]}"
         self.memory.upsert(
