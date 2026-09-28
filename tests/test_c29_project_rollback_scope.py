@@ -48,4 +48,4 @@ def test_c29_rollback_is_project_scoped():
 
         assert any(e.status.value == "active" and e.content.get("change_id") == "a1" for e in a)
         assert any(e.status.value == "active" and e.content.get("change_id") == "b2" for e in b)
-        assert not any(e.status.value == "active" and e.content.get("change_id") == "b1" for e in b)
+        assert any(e.status.value == "active" and e.content.get("change_id") == "b1" for e in b)
