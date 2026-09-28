@@ -1485,8 +1485,14 @@ def _run_self_tests() -> int:
             "requirement satisfied", VerificationKind.REQUIREMENT,
             metadata={"requirement_text": req_text},
         )
+        class T:
+            id = "test-id-1"
+            name = "test_create"
+        class Plan:
+            tests = [T()]
         r = engine.verify(claim, ctx={
-            "spec": spec, "coverage_map": coverage, "test_run": Run(),
+            "spec": spec, "coverage_map": coverage,
+            "test_plan": Plan(), "test_run": Run(),
         })
         assert r.result is ClaimResult.SUPPORTED
         assert r.reached_level is EvidenceLevel.REQUIREMENT_SATISFIED
@@ -1552,8 +1558,14 @@ def _run_self_tests() -> int:
             "acceptance criterion met", VerificationKind.ACCEPTANCE,
             metadata={"acceptance_text": acc_text},
         )
+        class T:
+            id = "t1"
+            name = "test_post"
+        class Plan:
+            tests = [T()]
         r = engine.verify(claim, ctx={
-            "spec": spec, "coverage_map": coverage, "test_run": Run(),
+            "spec": spec, "coverage_map": coverage,
+            "test_plan": Plan(), "test_run": Run(),
         })
         assert r.result is ClaimResult.SUPPORTED
         assert r.reached_level is EvidenceLevel.REQUIREMENT_SATISFIED
