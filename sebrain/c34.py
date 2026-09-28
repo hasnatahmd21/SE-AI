@@ -903,6 +903,47 @@ class KnowledgeFabricLoader:
         if delimiter_changed:
             candidates.append(delimiter_repaired)
 
+        # Recover a missing closing quote immediately before a structural
+        # object/array delimiter. This targets terminal string omissions such
+        # as "source":"Martin Fowler, Refactoring, 2nd Edition, 2018}].
+        terminal_quote_buf: list[str] = []
+        terminal_in_string = False
+        terminal_escaped = False
+        terminal_changed = False
+        for index, char in enumerate(line):
+            if terminal_in_string:
+                if terminal_escaped:
+                    terminal_quote_buf.append(char)
+                    terminal_escaped = False
+                    continue
+                if char == "\\":
+                    terminal_quote_buf.append(char)
+                    terminal_escaped = True
+                    continue
+                if char == '"':
+                    terminal_quote_buf.append(char)
+                    terminal_in_string = False
+                    continue
+                if char in "}]":
+                    lookahead = index + 1
+                    while lookahead < len(line) and line[lookahead].isspace():
+                        lookahead += 1
+                    if lookahead < len(line) and line[lookahead] in ",]}":
+                        terminal_quote_buf.append('"')
+                        terminal_quote_buf.append(char)
+                        terminal_in_string = False
+                        terminal_changed = True
+                        continue
+                terminal_quote_buf.append(char)
+                continue
+            terminal_quote_buf.append(char)
+            if char == '"':
+                terminal_in_string = True
+                terminal_escaped = False
+        terminal_repaired = "".join(terminal_quote_buf)
+        if terminal_changed and not terminal_in_string:
+            candidates.append(terminal_repaired)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
