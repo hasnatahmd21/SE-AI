@@ -1,6 +1,6 @@
 """C34 — Knowledge Fabric Loader.
 
-Loads the repository's D01-D58 Knowledge Fabric into the Brain's shared
+Loads the repository's intended Knowledge Fabric datasets into the Brain's shared
 SQLite storage. The current repository export uses grouped, extensionless
 files containing one or more JSON documents; canonical .json/.jsonl files
 are also supported.
@@ -21,7 +21,12 @@ from typing import Any, Iterator
 _DATASET_ID_RE = re.compile(r"^D(\d{1,2})$", re.IGNORECASE)
 _DATASET_RANGE_RE = re.compile(r"^D\s*(\d{1,2})\s*-\s*D\s*(\d{1,2})$", re.IGNORECASE)
 _RECORD_DATASET_RE = re.compile(r"^(D\d{1,2})(?:-|$)", re.IGNORECASE)
-_EXPECTED_DATASETS = tuple(f"D{i:02d}" for i in range(1, 59))
+# D26 is intentionally not part of the repository dataset plan.  The grouped
+# D26-D30 export contains D27-D30 records, so coverage must not treat D26 as
+# missing merely because the range filename begins at D26.
+_EXPECTED_DATASETS = tuple(
+    f"D{i:02d}" for i in range(1, 59) if i != 26
+)
 
 
 def now_iso() -> str:
@@ -72,7 +77,7 @@ class FabricRecord:
 
 
 class KnowledgeFabricLoader:
-    """Persistent D01-D58 loader backed by the Brain's Storage interface."""
+    """Persistent Knowledge Fabric loader backed by the Brain's Storage interface."""
 
     def __init__(self, storage: Any, datasets_dir: str | Path):
         self.storage = storage
