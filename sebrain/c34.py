@@ -1154,12 +1154,12 @@ class KnowledgeFabricLoader:
         self,
         query: str,
         *,
-        limit: int = 10,
+        limit: int | None = 10,
         language: str | None = None,
         dataset_id: str | None = None,
         concept: str | None = None,
     ) -> list[FabricRecord]:
-        if not query or limit <= 0:
+        if not query or (limit is not None and limit <= 0):
             return []
         terms = [
             token.lower()
@@ -1198,8 +1198,10 @@ class KnowledgeFabricLoader:
         if concept:
             sql += " AND concept=?"
             params.append(concept)
-        sql += " ORDER BY record_id LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY record_id"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(limit)
         return [self._row_to_record(r) for r in self.storage.query(sql, params)]
 
     def dataset_catalog(self) -> list[dict[str, Any]]:
