@@ -191,7 +191,7 @@ class SEBrain:
         return self.fabric.stats()
 
     def knowledge_catalog(self) -> list[dict[str, Any]]:
-        """Return the persistent D01-D58 catalog populated by C34."""
+        """Return the persistent catalog populated by C34 (57 planned datasets: D01-D58, excluding D26)."""
         if self.fabric is None:
             raise NotInitializedError("Knowledge Fabric is not connected")
         return self.fabric.dataset_catalog()
