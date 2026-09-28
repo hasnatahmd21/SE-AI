@@ -687,44 +687,6 @@ class KnowledgeFabricLoader:
         return None
 
     @staticmethod
-    def _balanced_delimiter_completion(line: str) -> str | None:
-        """Append only objectively missing closing JSON delimiters."""
-        in_string = False
-        escaped = False
-        stack: list[str] = []
-
-        for char in line:
-            if in_string:
-                if escaped:
-                    escaped = False
-                    continue
-                if char == "\\":
-                    escaped = True
-                    continue
-                if char == '"':
-                    in_string = False
-                continue
-
-            if char == '"':
-                in_string = True
-            elif char in "{[":
-                stack.append(char)
-            elif char in "}]":
-                expected = "{" if char == "}" else "["
-                if not stack or stack[-1] != expected:
-                    return None
-                stack.pop()
-
-        if in_string or not stack:
-            return None
-
-        completed = line
-        while stack:
-            opening = stack.pop()
-            completed += "}" if opening == "{" else "]"
-        return completed
-
-    @staticmethod
     def _parse_source(
         text: str, path: Path
     ) -> tuple[
