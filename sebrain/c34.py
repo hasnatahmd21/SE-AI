@@ -666,10 +666,6 @@ class KnowledgeFabricLoader:
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
-        completed = KnowledgeFabricLoader._balanced_delimiter_completion(line)
-        if completed is not None:
-            candidates.append(completed)
-
         quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
         if quote_repaired is not None:
             candidates.append(quote_repaired)
@@ -678,12 +674,6 @@ class KnowledgeFabricLoader:
                 candidates.append(quote_repaired.replace(',"]', ']'))
             if ",}" in quote_repaired:
                 candidates.append(quote_repaired.replace(",}", "}"))
-            completed = KnowledgeFabricLoader._balanced_delimiter_completion(
-                quote_repaired
-            )
-            if completed is not None:
-                candidates.append(completed)
-
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
@@ -813,12 +803,20 @@ class KnowledgeFabricLoader:
                         i = line_end
                         continue
 
-                errors.append({
-                    "file": path.name,
-                    "line": text.count("\n", 0, start) + 1,
-                    "error": "invalid JSON value",
-                    "detail": str(getattr(exc, "msg", "") or "JSON decode failed"),
-                })
+                line_no = text.count("\n", 0, start) + 1
+                if '"record_id"' in candidate_line or '"id"' in candidate_line:
+                    errors.append({
+                        "file": path.name,
+                        "line": line_no,
+                        "error": "invalid JSON value",
+                        "detail": str(getattr(exc, "msg", "") or "JSON decode failed"),
+                    })
+                else:
+                    warnings.append({
+                        "file": path.name,
+                        "line": line_no,
+                        "warning": "ignored malformed non-record JSON metadata region",
+                    })
                 # Do not scan nested braces inside the malformed value as if
                 # they were independent top-level records; that can fabricate
                 # records from fields such as test_input or code examples.
