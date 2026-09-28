@@ -162,6 +162,8 @@ def test_json_quote_repair_helper_recovers_embedded_code_quotes():
     assert repaired is not None
     payload = json.loads(repaired)
     assert payload["record_id"] == "D58-HELPER-001"
+    # The repair layer fixes JSON quoting only; it must preserve the
+    # record's original semantic content for provenance and round-tripping.
     assert payload["invalid_example"] == (
-        "SELECT * FROM users WHERE name = '" + "USER_INPUT" + "'"
+        "SELECT * FROM users WHERE name = '" + '" + "USER_INPUT" + "' + "'"
     )
