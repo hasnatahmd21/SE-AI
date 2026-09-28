@@ -1200,26 +1200,6 @@ class KnowledgeFabricLoader:
             ):
                 candidates.append(expression_repaired)
 
-        # Some exports omit whitespace around a variable concatenation, e.g.
-        #   "invalid_example":"... = '"+user_input+"'"
-        # The quote characters around the expression are evidence text, not
-        # JSON boundaries. Repair only the narrow quote + plus + identifier +
-        # plus + quote shape, then require full JSON and record-shape validation.
-        compact_expression_repaired = re.sub(
-            r'"(\\s*\\+\\s*[A-Za-z_][A-Za-z0-9_.]*\\s*\\+\\s*)"',
-            lambda match: '\\\\"' + match.group(1) + '\\\\"',
-            line,
-        )
-        if compact_expression_repaired != line:
-            try:
-                payload = json.loads(compact_expression_repaired)
-            except json.JSONDecodeError:
-                payload = None
-            if isinstance(payload, dict) and (
-                payload.get("record_id") or payload.get("id")
-            ):
-                candidates.append(compact_expression_repaired)
-
         quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
         if quote_repaired is not None:
             candidates.append(quote_repaired)
