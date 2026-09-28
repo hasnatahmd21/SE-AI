@@ -563,8 +563,11 @@ class KnowledgeFabricLoader:
 
             next_index = next_non_space(index + 1)
             next_char = line[next_index] if next_index < len(line) else ""
+            container = stack[-1] if stack else "object"
             closes = (
-                next_char in {":", "}", "]", ""}
+                next_char in {":", ""}
+                or (next_char == "}" and container == "object")
+                or (next_char == "]" and container == "array")
                 or (next_char == "," and comma_is_structural(next_index))
             )
             if closes:
