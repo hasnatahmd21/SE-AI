@@ -1142,6 +1142,13 @@ class KnowledgeFabricLoader:
         if ",}" in line:
             candidates.append(line.replace(",}", "}"))
 
+        # Some generated records contain an empty quoted property immediately
+        # before an object close (\`,"}\`). Remove only that malformed empty
+        # key shape; the candidate is accepted only after full JSON validation.
+        empty_key_repaired = line.replace(',"}', '}')
+        if empty_key_repaired != line:
+            candidates.append(empty_key_repaired)
+
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
@@ -1156,6 +1163,48 @@ class KnowledgeFabricLoader:
         )
         if missing_colon != line:
             candidates.append(missing_colon)
+
+        # Recover a missing array close before a property key when the
+        # decoder points at that key's colon. This is conservative because the
+        # candidate is accepted only after complete JSON parsing and record
+        # shape validation.
+        if error_pos is not None and 0 < error_pos < len(line):
+            if line[error_pos] == ":" and line[error_pos - 1] == '"':
+                key_start = line.rfind(',"', 0, error_pos)
+                if key_start >= 0:
+                    array_close_candidate = line[:key_start] + "]" + line[key_start:]
+                    candidates.append(array_close_candidate)
+
+        # If the record has a structurally unclosed object/array but no open
+        # string remains, try the exact missing terminal delimiters in reverse
+        # stack order. Full JSON parsing remains the acceptance gate.
+        structural_stack: list[str] = []
+        structural_in_string = False
+        structural_escaped = False
+        structural_mismatch = False
+        for char in line:
+            if structural_in_string:
+                if structural_escaped:
+                    structural_escaped = False
+                elif char == "\\":
+                    structural_escaped = True
+                elif char == '"':
+                    structural_in_string = False
+                continue
+            if char == '"':
+                structural_in_string = True
+            elif char in "{[":
+                structural_stack.append(char)
+            elif char in "}]":"[:2]:
+                expected = "{" if char == "}" else "["
+                if structural_stack and structural_stack[-1] == expected:
+                    structural_stack.pop()
+                else:
+                    structural_mismatch = True
+                    break
+        if not structural_in_string and structural_stack and not structural_mismatch:
+            closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
+            candidates.append(line + closing)
 
         # Embedded code examples sometimes contain an intentionally malformed
         # JSON string such as: SQL ... '" + "USER_INPUT" + "'.  When the
@@ -1274,6 +1323,14 @@ class KnowledgeFabricLoader:
                 line_end = text.find("\n", start)
                 if line_end < 0:
                     line_end = len(text)
+
+                # Some code-aware records span physical lines inside JSON
+                # string values. Repair the complete record instead of
+                # truncating at its first newline. Grouped exports use a
+                # record_id-prefixed object marker as the next record boundary.
+                next_record = text.find('\\n{"record_id":"', start + 1)
+                if next_record >= 0:
+                    line_end = next_record
                 candidate_line = text[start:line_end]
                 repaired = KnowledgeFabricLoader._repair_common_json_defects(
                     candidate_line,
