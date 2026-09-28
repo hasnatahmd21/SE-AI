@@ -47,6 +47,7 @@ class BrainResponse:
             "priorities": self.priorities,
             "risk": self.risk_level,
             "knowledge_count": len(self.knowledge),
+            "answer": self.answer,
             "evidence": list(self.evidence),
             "confidence": self.confidence,
             "sources": self.sources,
