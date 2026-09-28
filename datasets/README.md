@@ -1,30 +1,40 @@
 # Knowledge Fabric Datasets
 
-This directory contains the D01–D58 Knowledge Fabric used by SE Brain.
-
-## Supported repository layout
-
-The current repository export stores datasets as grouped, extensionless files such as:
+The repository export stores the D01–D58 Knowledge Fabric in grouped source
+files:
 
 - `D1 - D5`
 - `D6 - D10`
 - `D11 - D15`
-- ...
+- `D16 - D17`
+- `D18 - D20`
+- `D21 - D25`
+- `D 26 - D30`
+- `D31 - D35`
+- `D36 - D40`
+- `D41 - D45`
+- `D46 - D50`
+- `D51 - D55`
 - `D56 - D58`
 
-Each grouped file may contain multiple JSON documents, JSON record arrays, individual records, and human-readable batch/header lines. C34 parses the JSON document stream without requiring the files to be renamed.
+Each grouped source contains JSON dataset documents with manifests and records.
+C34 discovers these files recursively and normalizes them into the persistent
+SQLite Knowledge Fabric. Canonical `.json` and `.jsonl` sources are also
+supported.
 
-Canonical files are also supported:
+## Quality rule
 
-- `D01.jsonl` through `D58.jsonl`
-- `D01.json` through `D58.json`
+The locked quality-first rule remains authoritative: correctness, scope
+coverage, evidence quality, implementation usefulness, deduplication,
+validation, and completeness take priority over record count.
 
-## Data rules
+## Validation
 
-Record identity is based on `record_id`. Records are retained in the canonical fabric store only once. Same-content duplicate occurrences are audited, and conflicting duplicate identities are preserved in the C34 audit table rather than silently overwritten.
+Run the real repository validation with:
 
-The raw record JSON is preserved for provenance and for downstream engines that need fields beyond the normalized retrieval columns. C34 also stores dataset catalog metadata, source hashes, source locations, content hashes, and a searchable flattened field.
+```bash
+python scripts/validate_knowledge_fabric.py
+```
 
-The locked quality-first rule remains authoritative: correctness, scope coverage, evidence quality, implementation usefulness, deduplication, validation, and completeness take priority over record count.
-
-C34 expects D01–D58 and reports missing dataset IDs explicitly instead of pretending the fabric is complete.
+The validator requires all expected D01–D58 dataset IDs to be discoverable and
+requires zero loader errors. It does not impose a fixed record-count target.
