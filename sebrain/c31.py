@@ -1032,7 +1032,7 @@ class CrossProjectKnowledgeStore:
         self, key: str, *, target_project_id: str,
         actor: str, rationale: str = "",
     ) -> PromotionRecord:
-        """Move a shared record into a specific project (archive shared)."""
+        """Create a project-specific copy while preserving shared availability."""
         if not target_project_id:
             raise ValidationError("target_project_id required")
         row = self.storage.query_one(
@@ -1107,12 +1107,8 @@ class CrossProjectKnowledgeStore:
                         now_iso(), existing["id"],
                     ),
                 )
-            # Archive the shared original
-            self.storage.execute(
-                "UPDATE c31_knowledge SET status='archived', updated_at=? "
-                "WHERE id=?;",
-                (now_iso(), rec.id),
-            )
+            # Demotion creates a project-specific override. The shared
+            # record remains active so other projects retain shared access.
             transition = PromotionRecord(
                 action=PromotionAction.REJECT,       # not a promotion
                 from_scope=KnowledgeScope.SHARED,
