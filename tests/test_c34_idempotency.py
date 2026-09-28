@@ -31,7 +31,7 @@ def test_reload_is_idempotent_and_conflict_is_visible(tmp_path: Path):
         "SELECT topic FROM fabric_records WHERE record_id='D01-R001'"
     )["topic"] == "original"
     actions = loader.storage.query(
-        "SELECT action FROM fabric_record_audit WHERE record_id='D01-R001' ORDER BY id"
+        "SELECT action FROM fabric_record_audit WHERE record_id='D01-R001' ORDER BY audit_id"
     )
     assert [row["action"] for row in actions] == [
         "inserted", "duplicate_same", "duplicate_conflict"
