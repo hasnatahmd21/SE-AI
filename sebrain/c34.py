@@ -653,7 +653,7 @@ class KnowledgeFabricLoader:
                 elif char == '"':
                     control_buf.append(char)
                     control_in_string = False
-                elif char in "\\b\\f\\n\\r\\t":
+                elif char in "\b\f\n\r\t":
                     control_buf.append(control_chars[char])
                     control_changed = True
                 else:
