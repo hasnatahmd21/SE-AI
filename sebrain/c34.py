@@ -316,6 +316,11 @@ class KnowledgeFabricLoader:
                     errors.append({
                         "file": path.name,
                         "line": source_line,
+                        "record_id": str(raw.get("record_id") or raw.get("id") or ""),
+                        "dataset_id": raw.get("dataset_id"),
+                        "dataset": raw.get("dataset"),
+                        "context_dataset_id": context.get("dataset_id"),
+                        "manifest_dataset_id": manifest.get("dataset_id"),
                         "error": "unable to resolve dataset_id for record",
                     })
                     continue
