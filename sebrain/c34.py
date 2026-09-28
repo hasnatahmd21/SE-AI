@@ -1204,7 +1204,25 @@ class KnowledgeFabricLoader:
                     break
         if not structural_in_string and structural_stack and not structural_mismatch:
             closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
-            candidates.append(line + closing)
+            structural_candidate = line + closing
+            try:
+                structural_payload = json.loads(structural_candidate)
+            except json.JSONDecodeError:
+                structural_payload = None
+            if isinstance(structural_payload, dict) and (
+                structural_payload.get("record_id") or structural_payload.get("id")
+            ):
+                content_keys = (
+                    "topic", "concept", "question", "answer", "objective",
+                    "explanation", "title", "source_code", "corrected_code",
+                    "invalid_example", "requirements", "rule", "solution",
+                )
+                source_has_content = any(f'"{key}"' in line for key in content_keys)
+                candidate_has_content = any(
+                    structural_payload.get(key) is not None for key in content_keys
+                )
+                if not source_has_content or candidate_has_content:
+                    candidates.append(structural_candidate)
 
         # Embedded code examples sometimes contain an intentionally malformed
         # JSON string such as: SQL ... '" + "USER_INPUT" + "'.  When the
