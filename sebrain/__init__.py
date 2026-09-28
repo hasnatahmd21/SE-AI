@@ -41,7 +41,7 @@ or runnable/self-testable on its own:
     python -m sebrain.c08 --test     # self-tests
 
 `c01` uses pydantic, pydantic-settings, and structlog; `c18` invokes
-pytest for project test execution. See requirements.txt / pyproject.toml. The
+pytest for project test execution. See pyproject.toml. The
 remaining engine implementations use the Python standard library.
 
 This file additionally provides `SEBrain`, a small orchestrator that starts
