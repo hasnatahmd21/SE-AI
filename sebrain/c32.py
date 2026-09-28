@@ -698,7 +698,10 @@ class BenchmarkRunner:
         )
         cases = self._select(case_ids=case_ids, categories=categories)
         if len(cases) > self.max_cases_per_run:
-            cases = cases[: self.max_cases_per_run]
+            raise ValidationError(
+                f"selected {len(cases)} cases exceeds max_cases_per_run="
+                f"{self.max_cases_per_run}; narrow case_ids/categories explicitly"
+            )
 
         for c in cases:
             res = self._run_one(c)
@@ -781,7 +784,15 @@ class BenchmarkRunner:
                             if metrics.tests_passed == metrics.tests_total
                             else CaseOutcome.FAILED)
             else:
-                outcome = CaseOutcome.PASSED
+                # No success metric was supplied. Do not manufacture a pass.
+                outcome = CaseOutcome.SKIPPED
+                error = {
+                    "type": "NoOutcomeMetric",
+                    "message": (
+                        "runner returned no correctness or complete "
+                        "tests_passed/tests_total metric"
+                    ),
+                }
         except Exception as exc:
             outcome = CaseOutcome.ERROR
             error = {
@@ -791,8 +802,13 @@ class BenchmarkRunner:
         duration = time.monotonic() - t0
         if metrics.duration_seconds is None:
             metrics.duration_seconds = duration
-        # Bound duration (informational)
-        if metrics.duration_seconds > self.max_duration_per_case:
+        # A callable runner cannot be forcibly interrupted here, but actual
+        # wall-clock duration is authoritative for the harness bound.
+        elapsed_limit = min(
+            self.max_duration_per_case,
+            float(case.timeout_seconds),
+        )
+        if duration > elapsed_limit:
             outcome = CaseOutcome.FAILED
             error = {
                 "type": "DurationExceeded",
