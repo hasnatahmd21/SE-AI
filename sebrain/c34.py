@@ -1210,6 +1210,7 @@ class KnowledgeFabricLoader:
             and structural_stack
             and not structural_mismatch
             and not has_concat_syntax
+            and (len(line) >= 500 or len(structural_stack) > 1)
         ):
             closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
             structural_candidate = line + closing
@@ -1283,20 +1284,6 @@ class KnowledgeFabricLoader:
                 candidates.append(quote_repaired.replace(',"]', ']'))
             if ",}" in quote_repaired:
                 candidates.append(quote_repaired.replace(",}", "}"))
-        contract_keys = (
-            "record_id", "dataset_id", "batch_id", "dataset", "batch",
-            "topic", "subtopic", "concept", "knowledge_type", "question",
-            "answer", "explanation", "objective", "requirements", "constraints",
-            "inputs", "outputs", "source_code", "correct_code", "corrected_code",
-            "incorrect_code", "invalid_example", "problem", "failure_mode",
-            "root_cause", "cause", "solution", "alternative", "tradeoff", "rule",
-            "verification", "verification_guidance", "verification_method",
-            "provenance", "relationships", "execution_status", "validation_status",
-            "title", "decision_question", "option_a", "option_b", "decision_factors",
-            "expected_behavior", "testing", "testing_guidance",
-        )
-        expected_keys = {key for key in contract_keys if f'"{key}"' in line}
-
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
