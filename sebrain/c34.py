@@ -280,6 +280,11 @@ class KnowledgeFabricLoader:
         return report
 
     def load_dataset_file(self, path: str | Path) -> dict[str, Any]:
+        """Load one source file atomically into the Knowledge Fabric."""
+        with self.storage.transaction():
+            return self._load_dataset_file(path)
+
+    def _load_dataset_file(self, path: str | Path) -> dict[str, Any]:
         path = Path(path)
         if not path.is_file():
             raise FileNotFoundError(path)
