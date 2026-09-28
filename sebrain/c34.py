@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 _DATASET_ID_RE = re.compile(r"^D(\d{1,2})$", re.IGNORECASE)
-_DATASET_RANGE_RE = re.compile(r"^D(\d{1,2})\s*-\s*D(\d{1,2})$", re.IGNORECASE)
+_DATASET_RANGE_RE = re.compile(r"^D\s*(\d{1,2})\s*-\s*D\s*(\d{1,2})$", re.IGNORECASE)
 _RECORD_DATASET_RE = re.compile(r"^(D\d{1,2})(?:-|$)", re.IGNORECASE)
 _EXPECTED_DATASETS = tuple(f"D{i:02d}" for i in range(1, 59))
 
