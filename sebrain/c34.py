@@ -526,7 +526,7 @@ class KnowledgeFabricLoader:
                 chars.append(char)
                 escaped = False
                 continue
-            if char == "\":
+            if char == "\\":
                 chars.append(char)
                 escaped = True
                 continue
@@ -625,7 +625,7 @@ class KnowledgeFabricLoader:
                 if escaped:
                     escaped = False
                     continue
-                if char == "\":
+                if char == "\\":
                     escaped = True
                     continue
                 if char == '"':
