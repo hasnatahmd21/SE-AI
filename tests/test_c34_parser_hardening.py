@@ -46,3 +46,16 @@ def test_literal_control_characters_inside_record_strings_are_repaired():
     assert repaired is not None
     payload = json.loads(repaired)
     assert payload["example"] == "first\tsecond"
+
+def test_json_quote_repair_handles_database_security_sql_examples():
+    line = (
+        '{"record_id":"D16-B20-SEC-0002","dataset_id":"D16",'
+        '"invalid_example":"SELECT * FROM users WHERE username = \'" + "USER_INPUT" + "\'"}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["record_id"] == "D16-B20-SEC-0002"
+    assert payload["invalid_example"] == (
+        "SELECT * FROM users WHERE username = '" + "USER_INPUT" + "'"
+    )
