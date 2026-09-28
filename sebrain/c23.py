@@ -252,11 +252,18 @@ class SecurityReport:
         return None
 
     def to_dict(self) -> dict[str, Any]:
+        analysis_errors = [
+            {"path": fr.path, **error}
+            for fr in self.file_results
+            for error in fr.analysis_errors
+        ]
         return {
             "id": self.id,
             "root": self.root,
             "project_id": self.project_id,
             "findings": [f.to_dict() for f in self.findings],
+            "file_results": [fr.to_dict() for fr in self.file_results],
+            "analysis_errors": analysis_errors,
             "files_scanned": self.files_scanned,
             "files_skipped": self.files_skipped,
             "total_bytes_scanned": self.total_bytes_scanned,
@@ -278,6 +285,7 @@ class SecurityReport:
             f"files_scanned={self.files_scanned}  "
             f"skipped={self.files_skipped}  "
             f"bytes={self.total_bytes_scanned}\n"
+            f"analysis_errors={sum(len(fr.analysis_errors) for fr in self.file_results)}\n"
             f"findings: critical={c['critical']} high={c['high']} "
             f"medium={c['medium']} low={c['low']} info={c['info']}\n"
             f"by_kind: {self.by_kind()}"
