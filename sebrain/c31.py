@@ -1141,27 +1141,37 @@ class CrossProjectKnowledgeStore:
                     ),
                 )
             elif existing["status"] == "archived":
-                # Archived history occupies the natural key, so reactivation
-                # must update that historical row rather than INSERT a second
-                # row that violates the uniqueness constraint. This preserves
-                # the row's lineage while making the latest state active.
+                # Preserve the historical row as archived and create a fresh
+                # active row. Migration 32 permits this history pattern while
+                # enforcing uniqueness among active records only.
+                new_rec = KnowledgeRecord(
+                    id=_new_id(), scope=KnowledgeScope.PROJECT,
+                    owner_project_id=target_project_id,
+                    key=key, content=rec.content, tags=rec.tags,
+                    version_req=rec.version_req, confidence=rec.confidence,
+                    provenance=Provenance(
+                        source=f"demoted_from_shared_by:{actor}",
+                        source_type=ProvenanceType.AGENT,
+                        reference=rec.id,
+                        confidence=rec.confidence,
+                    ),
+                    rationale=f"demoted from shared: {rationale or 'no reason'}",
+                )
                 self.storage.execute(
-                    "UPDATE c31_knowledge SET status='active', content=?, tags=?, "
-                    "version_req=?, confidence=?, provenance_json=?, rationale=?, "
-                    "updated_at=? WHERE id=? AND status='archived';",
+                    "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
+                    "content, tags, version_req, confidence, provenance_json, "
+                    "rationale, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                     (
-                        json.dumps(rec.content, default=str),
-                        json.dumps(rec.tags),
-                        json.dumps(rec.version_req),
-                        rec.confidence.value,
-                        json.dumps(Provenance(
-                            source=f'demoted_from_shared_by:{actor}',
-                            source_type=ProvenanceType.AGENT,
-                            reference=rec.id,
-                            confidence=rec.confidence,
-                        ).to_dict(), default=str),
-                        f"demoted from shared: {rationale or 'no reason'}",
-                        now_iso(), existing["id"],
+                        new_rec.id, new_rec.scope.value,
+                        new_rec.owner_project_id, new_rec.key,
+                        json.dumps(new_rec.content, default=str),
+                        json.dumps(new_rec.tags),
+                        json.dumps(new_rec.version_req),
+                        new_rec.confidence.value,
+                        json.dumps(new_rec.provenance.to_dict(), default=str),
+                        new_rec.rationale, new_rec.status,
+                        new_rec.created_at, new_rec.updated_at,
                     ),
                 )
             # Demotion creates a project-specific override. The shared
