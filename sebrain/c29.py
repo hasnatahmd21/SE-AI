@@ -959,52 +959,52 @@ class GovernanceEngine:
         target_content["rollback_restored_from"] = current
         target_content["rollback_restored_at"] = now_iso()
 
-        # Archive the current active version, then create a fresh active
-        # pointer carrying the exact target version/change identity.
-        for e in current_entries:
-            if e.status.value == "active":
-                self.memory.archive(e.id)
-        self.memory.create(
-            MemoryKind.PROJECT,
-            f"{scope_key_prefix}:{scope}:rollback-active:{now_iso()}",
-            target_content,
-            scope_type=MemoryScope.PROJECT,
-            scope_id=project_id or "default",
-            tags=["self_change", "c29", "rollback-restored"],
-            provenance=Provenance(
-                source="governance_engine",
-                source_type=ProvenanceType.SYSTEM,
-                confidence=Confidence.HIGH,
-            ),
-        )
-
         rec = RollbackRecord(
             change_id=cur_change_id, scope=scope,
             from_version=current, to_version=to_version,
             reason=reason, rationale=rationale,
         )
-        # Persist a rollback audit entry
-        self.memory.upsert(
-            MemoryKind.PROJECT,
-            f"{scope_key_prefix}:{scope}:rollback:{now_iso()}",
-            {
-                "change_id": rec.change_id,
-                "scope": scope,
-                "from_version": rec.from_version,
-                "to_version": rec.to_version,
-                "reason": rec.reason.value,
-                "rationale": rec.rationale,
-                "rolled_back_at": rec.rolled_back_at,
-            },
-            scope_type=MemoryScope.PROJECT,
-            scope_id=project_id or "default",
-            tags=["rollback", "c29"],
-            provenance=Provenance(
-                source="governance_engine",
-                source_type=ProvenanceType.SYSTEM,
-                confidence=Confidence.HIGH,
-            ),
-        )
+        # Archive the current version, restore the target pointer, and write
+        # the audit record atomically. A failure in any step must leave the
+        # pre-rollback state intact.
+        with self.memory.storage.transaction():
+            for e in current_entries:
+                if e.status.value == "active":
+                    self.memory.archive(e.id)
+            self.memory.create(
+                MemoryKind.PROJECT,
+                f"{scope_key_prefix}:{scope}:rollback-active:{now_iso()}",
+                target_content,
+                scope_type=MemoryScope.PROJECT,
+                scope_id=project_id or "default",
+                tags=["self_change", "c29", "rollback-restored"],
+                provenance=Provenance(
+                    source="governance_engine",
+                    source_type=ProvenanceType.SYSTEM,
+                    confidence=Confidence.HIGH,
+                ),
+            )
+            self.memory.upsert(
+                MemoryKind.PROJECT,
+                f"{scope_key_prefix}:{scope}:rollback:{now_iso()}",
+                {
+                    "change_id": rec.change_id,
+                    "scope": scope,
+                    "from_version": rec.from_version,
+                    "to_version": rec.to_version,
+                    "reason": rec.reason.value,
+                    "rationale": rec.rationale,
+                    "rolled_back_at": rec.rolled_back_at,
+                },
+                scope_type=MemoryScope.PROJECT,
+                scope_id=project_id or "default",
+                tags=["rollback", "c29"],
+                provenance=Provenance(
+                    source="governance_engine",
+                    source_type=ProvenanceType.SYSTEM,
+                    confidence=Confidence.HIGH,
+                ),
+            )
         return rec
 
     # ---- version helpers ----
