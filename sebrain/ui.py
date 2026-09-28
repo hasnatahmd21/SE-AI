@@ -13,6 +13,12 @@ import gradio as gr
 from . import Config, SEBrain
 
 
+APP_CSS = """
+body,.gradio-container{background:#0a0a0f!important;color:#e8e8f0!important}
+textarea{background:#05050a!important;color:#00ff88!important;font-family:monospace!important}
+"""
+
+
 def build_app(
     datasets_dir: str | Path = "./datasets",
     data_dir: str | Path = "./.sebrain_ui",
@@ -63,12 +69,7 @@ def build_app(
         ]
         return "\n".join(lines)
 
-    css = """
-    body,.gradio-container{background:#0a0a0f!important;color:#e8e8f0!important}
-    textarea{background:#05050a!important;color:#00ff88!important;font-family:monospace!important}
-    """
-
-    with gr.Blocks(css=css, title="SE Brain") as demo:
+    with gr.Blocks(title="SE Brain") as demo:
         gr.Markdown(
             "# ◈ SE BRAIN ◈\n"
             "Autonomous Software Engineering Brain · Knowledge Fabric"
@@ -86,7 +87,7 @@ def build_app(
             output = gr.Textbox(
                 label="Analysis Output",
                 lines=32,
-                show_copy_button=True,
+                buttons=["copy"],
             )
             run.click(analyze, task, output)
             clear.click(lambda: ("", ""), outputs=[task, output])
@@ -125,6 +126,7 @@ def main() -> None:
         server_name=args.host,
         server_port=args.port,
         share=args.share,
+        css=APP_CSS,
     )
 
 
