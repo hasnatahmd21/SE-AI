@@ -944,6 +944,44 @@ class KnowledgeFabricLoader:
         if terminal_changed and not terminal_in_string:
             candidates.append(terminal_repaired)
 
+        # Generate one candidate per possible missing quote before a
+        # structural closing delimiter. This is safer than repairing every
+        # apparent delimiter in one pass because legitimate code/prose strings
+        # may themselves contain '}' or ']'. Each candidate is accepted only
+        # after full JSON parsing and record-shape validation.
+        for index, char in enumerate(line):
+            if char not in "}]":
+                continue
+            prefix = line[:index]
+            escaped = False
+            in_value_string = False
+            for prefix_char in prefix:
+                if in_value_string:
+                    if escaped:
+                        escaped = False
+                    elif prefix_char == "\\":
+                        escaped = True
+                    elif prefix_char == '"':
+                        in_value_string = False
+                elif prefix_char == '"':
+                    in_value_string = True
+            if not in_value_string:
+                continue
+            lookahead = index + 1
+            while lookahead < len(line) and line[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(line) and line[lookahead] not in ",]}":
+                continue
+            candidate = prefix + '"' + line[index:]
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and (
+                payload.get("record_id") or payload.get("id")
+            ):
+                candidates.append(candidate)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
