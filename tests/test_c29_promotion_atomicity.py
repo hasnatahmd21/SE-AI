@@ -48,7 +48,7 @@ def test_c29_promotion_failure_rolls_back_persisted_change():
         engine = GovernanceEngine(memory=memory)
 
         original = memory.record_failure
-        memory.record_failure = lambda *a, **k: (_ for _ in ()).throw(
+        memory.upsert = lambda *a, **k: (_ for _ in ()).throw(
             RuntimeError("synthetic audit failure")
         )
         try:
@@ -57,8 +57,12 @@ def test_c29_promotion_failure_rolls_back_persisted_change():
                 evidence=_ev(),
                 project_id="p",
             )
+        except RuntimeError as exc:
+            assert "synthetic audit failure" in str(exc)
+        else:
+            raise AssertionError("promotion audit failure was swallowed")
         finally:
-            memory.record_failure = original
+            memory.upsert = original
 
-        assert report.final_status is PromotionStatus.PROMOTED
-        assert engine._active_version("c29.atomic", project_id="p") == 1
+        assert engine._active_version("c29.atomic", project_id="p") is None
+        assert memory.find(kind="project", scope_id="p", key_like="self_change:c29.atomic:") == []
