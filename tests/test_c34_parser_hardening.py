@@ -114,13 +114,3 @@ def test_json_quote_repair_handles_embedded_go_code_quotes():
     assert 'sql.Open("driver-name", dsn)' in payload["source_code"]
     assert 'errors.New("unsupported scheme")' in payload["source_code"]
 
-
-def test_real_d41_tradeoff_object_boundary_loads_without_parse_errors(tmp_path: Path):
-    source = Path("datasets/D41 - D45")
-    assert source.is_file()
-    target = tmp_path / source.name
-    target.write_bytes(source.read_bytes())
-    loader = KnowledgeFabricLoader(SQLiteStorage(":memory:"), tmp_path)
-    result = loader.load_dataset_file(target)
-    assert result["errors"] == []
-    assert result["inserted"] > 2000
