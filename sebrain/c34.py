@@ -553,7 +553,7 @@ class KnowledgeFabricLoader:
                 chars.append(char)
                 escaped = False
                 continue
-            if char == "\":
+            if char == "\\":
                 chars.append(char)
                 escaped = True
                 continue
