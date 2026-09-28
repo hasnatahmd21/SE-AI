@@ -57,7 +57,7 @@ def test_c27_promoted_patterns_excludes_archived_entries():
         memory.archive(archived.id)
 
         from sebrain.c27 import LearningEngine
-        patterns = LearningEngine(memory=memory).repository.promoted_patterns()
+        patterns = LearningRepository(memory).promoted_patterns()
         keys = {p["key"] for p in patterns}
         assert "active-key" in keys
         assert "archived-key" not in keys
