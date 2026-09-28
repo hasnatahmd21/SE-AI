@@ -495,15 +495,42 @@ class KnowledgeFabricLoader:
                 index += 1
             return index
 
+        def quoted_token_end(index: int) -> int | None:
+            escaped_token = False
+            i = index + 1
+            while i < len(line):
+                char = line[i]
+                if escaped_token:
+                    escaped_token = False
+                elif char == "\":
+                    escaped_token = True
+                elif char == '"':
+                    return i
+                i += 1
+            return None
+
         def comma_is_structural(index: int) -> bool:
             next_index = next_non_space(index + 1)
-            next_char = line[next_index] if next_index < len(line) else ""
+            if next_index >= len(line):
+                return False
+            next_char = line[next_index]
             container = stack[-1] if stack else "object"
+
+            if next_char == '"':
+                end_index = quoted_token_end(next_index)
+                if end_index is None:
+                    return False
+                after = next_non_space(end_index + 1)
+                if container == "object":
+                    return after < len(line) and line[after] == ":"
+                return True
+
             if container == "object":
-                return next_char == '"'
+                # An object boundary after a value must begin the next key.
+                return False
+
             return (
-                next_char == '"'
-                or next_char in {"{", "[", "-"}
+                next_char in {"{", "[", "-"}
                 or next_char.isdigit()
                 or next_char in {"t", "f", "n"}
             )
@@ -526,7 +553,7 @@ class KnowledgeFabricLoader:
                 chars.append(char)
                 escaped = False
                 continue
-            if char == "\\":
+            if char == "\":
                 chars.append(char)
                 escaped = True
                 continue
@@ -544,7 +571,7 @@ class KnowledgeFabricLoader:
                 chars.append('"')
                 in_string = False
             else:
-                chars.append('\\"')
+                chars.append('\"')
                 changed = True
 
         if not changed or in_string:
