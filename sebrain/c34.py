@@ -582,13 +582,22 @@ class KnowledgeFabricLoader:
                     closes = next_char == ":"
                 else:
                     container = stack[-1]["type"] if stack else "object"
-                    closes = (
-                        next_char in {"", ",", "}", "]"}
-                        and (
-                            container == "array"
-                            or next_char in {"", ",", "}", "]"}
+                    if next_char == "":
+                        closes = True
+                    elif next_char == ",":
+                        closes = comma_is_structural(next_index)
+                    elif next_char in {"}", "]"}:
+                        boundary_after = next_non_space(next_index + 1)
+                        boundary_char = (
+                            line[boundary_after]
+                            if boundary_after < len(line)
+                            else ""
                         )
-                    )
+                        closes = boundary_char in {"", "}", "]"}
+                        if boundary_char == ",":
+                            closes = comma_is_structural(boundary_after)
+                    else:
+                        closes = False
                 if closes:
                     chars.append('"')
                     in_string = False
