@@ -1067,6 +1067,13 @@ class KnowledgeFabricLoader:
             while key_start >= 0:
                 value_start = key_start + len(marker)
                 boundary = line.find('","', value_start)
+                if boundary < 0:
+                    terminal_boundary = line.rfind('"}')
+                    boundary = (
+                        terminal_boundary
+                        if terminal_boundary >= value_start
+                        else -1
+                    )
                 while boundary >= 0:
                     value = line[value_start:boundary]
                     if '"' in value:
