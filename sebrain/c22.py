@@ -705,27 +705,68 @@ class RequirementVerifier(_Verifier):
                 confidence=Confidence.HIGH,
             )
 
-        # Any test nodeid in test_run that passed?
-        # C17 test ids are stable_hashes; C18 nodeids include filename.
-        # Best-effort: match by suffix overlap of the test name.
+        # C17 test_ids are stable identifiers; C18 nodeids use pytest names.
+        # A coverage claim is only valid when the covered test id can be mapped
+        # to an actual C18 result. Never treat an unrelated passing test as
+        # evidence for this requirement.
+        test_plan = ctx.get("test_plan")
+        test_name_by_id = {
+            str(getattr(t, "id", "")): str(getattr(t, "name", ""))
+            for t in (getattr(test_plan, "tests", []) or [])
+            if getattr(t, "id", None) and getattr(t, "name", None)
+        }
+        if not test_plan:
+            return self._insufficient(
+                claim,
+                reason=(
+                    "test_plan required to map C17 coverage test ids "
+                    "to C18 pytest nodeids"
+                ),
+                level=EvidenceLevel.TESTED,
+            )
         test_run_results = list(getattr(test_run, "results", []) or [])
         matching_evidence: list[EvidenceRef] = []
-        any_passed = False
-        any_failed = False
+        matched_results: list[Any] = []
         for r in test_run_results:
             nid = str(getattr(r, "nodeid", ""))
-            oc = getattr(getattr(r, "outcome", None), "value", "")
-            # test_ids are opaque; we accept any passing test as weak evidence
-            # that the coverage slot was exercised.
-            if oc == "passed":
-                any_passed = True
+            if any(
+                tid in test_name_by_id
+                and (
+                    nid.endswith("::" + test_name_by_id[tid])
+                    or nid.startswith(test_name_by_id[tid] + "[")
+                    or ("::" + test_name_by_id[tid] + "[") in nid
+                )
+                for tid in test_ids
+            ):
+                matched_results.append(r)
+                oc = getattr(getattr(r, "outcome", None), "value", "")
                 matching_evidence.append(EvidenceRef(
                     kind=EvidenceKind.TEST_NODEID,
                     ref=nid, payload={"outcome": oc},
-                    description="passing test node",
+                    description="covered test node",
                 ))
-            elif oc in ("failed", "error"):
-                any_failed = True
+        if not matched_results:
+            return self._insufficient(
+                claim,
+                reason="coverage test ids did not map to any C18 test result",
+                evidence=[
+                    EvidenceRef(
+                        kind=EvidenceKind.REQUIREMENT_COVERAGE,
+                        ref=target,
+                        payload={"covered_by": test_ids},
+                    )
+                ],
+                level=EvidenceLevel.TESTED,
+            )
+        any_failed = any(
+            getattr(getattr(r, "outcome", None), "value", "")
+            in ("failed", "error")
+            for r in matched_results
+        )
+        any_passed = any(
+            getattr(getattr(r, "outcome", None), "value", "") == "passed"
+            for r in matched_results
+        )
 
         if any_failed:
             return self._refuted(
@@ -813,16 +854,56 @@ class AcceptanceVerifier(_Verifier):
                 level=EvidenceLevel.TESTED,
                 confidence=Confidence.HIGH,
             )
-        # All test_run results passed?
-        results = list(getattr(test_run, "results", []) or [])
-        if not results:
+        # Map C17 coverage ids to actual C18 pytest results. An unrelated
+        # passing test must never satisfy an acceptance criterion.
+        test_plan = ctx.get("test_plan")
+        test_name_by_id = {
+            str(getattr(t, "id", "")): str(getattr(t, "name", ""))
+            for t in (getattr(test_plan, "tests", []) or [])
+            if getattr(t, "id", None) and getattr(t, "name", None)
+        }
+        if not test_plan:
             return self._insufficient(
-                claim, reason="test_run produced no results",
+                claim,
+                reason=(
+                    "test_plan required to map C17 coverage test ids "
+                    "to C18 pytest nodeids"
+                ),
+                level=EvidenceLevel.TESTED,
+            )
+        results = list(getattr(test_run, "results", []) or [])
+        matched = [
+            r for r in results
+            if any(
+                tid in test_name_by_id
+                and (
+                    str(getattr(r, "nodeid", "")).endswith(
+                        "::" + test_name_by_id[tid]
+                    )
+                    or ("::" + test_name_by_id[tid] + "[") in str(
+                        getattr(r, "nodeid", "")
+                    )
+                )
+                for tid in test_ids
+            )
+        ]
+        if not matched:
+            return self._insufficient(
+                claim,
+                reason="coverage test ids did not map to any C18 test result",
+                evidence=[EvidenceRef(
+                    kind=EvidenceKind.ACCEPTANCE_CRITERION,
+                    ref=target, payload={"covered_by": test_ids},
+                )],
                 level=EvidenceLevel.TESTED,
             )
         any_failed = any(
             getattr(getattr(r, "outcome", None), "value", "") in ("failed", "error")
-            for r in results
+            for r in matched
+        )
+        any_passed = any(
+            getattr(getattr(r, "outcome", None), "value", "") == "passed"
+            for r in matched
         )
         if any_failed:
             return self._refuted(
