@@ -367,15 +367,15 @@ class KnowledgeFabricLoader:
                     duplicates += 1
                 elif status == "duplicate_conflict":
                     conflicts += 1
-                    errors.append({
+                    warnings.append({
                         "file": path.name,
                         "line": source_line,
-                        "error": f"record_id exists with different content: {record_id}",
+                        "warning": f"record_id exists with different content; canonical record retained: {record_id}",
                     })
 
                 counts = per_dataset.setdefault(
                     dataset_id,
-                    {"seen": 0, "inserted": 0, "duplicates": 0, "conflicts": 0},
+                    {"seen": 0, "inserted": 0, "duplicates": 0, "conflicts": 0, "errors": 0},
                 )
                 counts["seen"] += 1
                 if status == "inserted":
@@ -452,10 +452,10 @@ class KnowledgeFabricLoader:
                     dataset_id,
                     path.name,
                     counts["seen"],
-                    counts["seen"] - counts["conflicts"],
+                    counts["seen"] - counts["errors"],
                     total,
-                    counts["conflicts"],
-                    int(counts["conflicts"] == 0),
+                    counts["errors"],
+                    int(counts["errors"] == 0),
                     now_iso(),
                 ),
             )
@@ -632,6 +632,11 @@ class KnowledgeFabricLoader:
             dataset_id = self._normalise_dataset_id(match.group(1))
             if dataset_id:
                 return dataset_id
+
+        stem = Path(source_name).stem
+        direct = self._normalise_dataset_id(stem)
+        if direct:
+            return direct
 
         range_match = _DATASET_RANGE_RE.fullmatch(source_name)
         if range_match:
@@ -875,13 +880,13 @@ class KnowledgeFabricLoader:
         )
         for term in terms:
             escaped = (
-                term.replace("\\", "\\\\")
-                .replace("%", "\%")
-                .replace("_", "\_")
+                term.replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_")
             )
             like = f"%{escaped}%"
             clauses.append("(" + " OR ".join(
-                f"LOWER({field}) LIKE ? ESCAPE '\\'"
+                f"LOWER({field}) LIKE ? ESCAPE '!'"
                 for field in fields
             ) + ")")
             params.extend([like] * len(fields))
