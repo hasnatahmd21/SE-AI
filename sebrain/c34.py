@@ -1202,7 +1202,15 @@ class KnowledgeFabricLoader:
                 else:
                     structural_mismatch = True
                     break
-        if not structural_in_string and structural_stack and not structural_mismatch:
+        has_concat_syntax = any(
+            marker in line for marker in ('" + ', ' + "', '"+', '+"')
+        )
+        if (
+            not structural_in_string
+            and structural_stack
+            and not structural_mismatch
+            and not has_concat_syntax
+        ):
             closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
             structural_candidate = line + closing
             try:
