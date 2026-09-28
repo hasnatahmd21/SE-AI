@@ -666,38 +666,11 @@ class KnowledgeFabricLoader:
         if control_changed:
             candidates.append(control_repaired)
 
-        # Some generated records embed a code/string concatenation expression
-        # directly inside a JSON string, e.g. \\"prefix \\" + variable + \\"suffix\\".
-        # This is not valid JSON, but the intended record value is deterministic:
-        # concatenate the literal fragments and expression text into one string.
-        concat_pattern = re.compile(r'"\s*\+\s*(?:"([^"]*)"|([^"\n]+?))\s*\+\s*"')
-        concatenated = concat_pattern.sub(
-            lambda m: m.group(1) if m.group(1) is not None else m.group(2).strip(),
-            line,
-        )
-        if concatenated != line:
-            try:
-                payload = json.loads(concatenated)
-            except json.JSONDecodeError:
-                payload = None
-            if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
-                return concatenated
-            candidates.append(concatenated)
-
-        # A common exporter form puts the whole expression between JSON
-        # string delimiters: "literal " + "VALUE" + " suffix". Normalize
-        # that complete expression while preserving the JSON string boundary.
-        full_concat_pattern = re.compile(
-            r'"(?P<left>[^"\n]*)"\s*\+\s*"(?P<middle>[^"\n]*)"'
-            r'\s*\+\s*"(?P<right>[^"\n]*)"'
-        )
-        full_concatenated = full_concat_pattern.sub(
-            lambda m: '"' + m.group("left") + m.group("middle") + m.group("right") + '"',
-            line,
-        )
-        if full_concatenated != line:
-            candidates.append(full_concatenated)
-
+        # Do not evaluate or normalize embedded code/string concatenation
+        # expressions. Their text is part of the dataset's evidence and must
+        # survive repair byte-for-byte at the semantic string level. The repair
+        # layer is responsible only for making the surrounding JSON valid.
+        
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
