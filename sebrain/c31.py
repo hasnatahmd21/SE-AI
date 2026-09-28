@@ -999,21 +999,20 @@ class CrossProjectKnowledgeStore:
             )
             return transition, evaluation
     
-        def _persist_transition(self, t: PromotionRecord) -> None:
-            self.storage.execute(
-                "INSERT INTO c31_transitions(id, ts, action, from_scope, "
-                "to_scope, owner_project_id, key, actor, rationale, "
-                "policy_verdict, evidence_json) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                (
-                    t.id, t.ts, t.action.value,
-                    t.from_scope.value, t.to_scope.value,
-                    t.owner_project_id, t.key, t.actor, t.rationale,
-                    t.policy_verdict,
-                    json.dumps(t.evidence, default=str),
-                ),
-            )
-
+    def _persist_transition(self, t: PromotionRecord) -> None:
+        self.storage.execute(
+            "INSERT INTO c31_transitions(id, ts, action, from_scope, "
+            "to_scope, owner_project_id, key, actor, rationale, "
+            "policy_verdict, evidence_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            (
+                t.id, t.ts, t.action.value,
+                t.from_scope.value, t.to_scope.value,
+                t.owner_project_id, t.key, t.actor, t.rationale,
+                t.policy_verdict,
+                json.dumps(t.evidence, default=str),
+            ),
+        )
     def _update_transition_action(self, t: PromotionRecord) -> None:
         self.storage.execute(
             "UPDATE c31_transitions SET action=?, policy_verdict=?, "
