@@ -207,4 +207,4 @@ def test_json_quote_repair_chains_decoder_position_and_quote_state():
     repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
     assert repaired is not None
     payload = json.loads(repaired)
-    assert payload["source_code"] == 'import _ "net/http/pprof"\\n// diagnostic'
+    assert payload["source_code"] == 'import _ "net/http/pprof"' + "\n" + "// diagnostic"
