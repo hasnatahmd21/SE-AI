@@ -330,6 +330,19 @@ class KnowledgeFabricLoader:
                     })
                     continue
 
+                # The repository plan is authoritative: D26 is intentionally
+                # absent, and unknown dataset IDs must never silently enter
+                # the shared fabric and distort coverage statistics.
+                if dataset_id not in _EXPECTED_DATASETS:
+                    errors.append({
+                        "file": path.name,
+                        "line": source_line,
+                        "record_id": str(raw.get("record_id") or raw.get("id") or ""),
+                        "dataset_id": dataset_id,
+                        "error": "dataset_id is outside the planned Knowledge Fabric scope",
+                    })
+                    continue
+
                 record_id = str(raw.get("record_id") or raw.get("id") or "").strip()
                 if not record_id:
                     record_id = self._hash_id(
