@@ -1,4 +1,4 @@
-"""Validate the repository's real D01-D58 Knowledge Fabric export.
+"""Validate the repository's real Knowledge Fabric export.
 
 This command intentionally exercises the same C34 -> C36 -> C35 path used by
 the application, but reports findings instead of assuming a record-count
