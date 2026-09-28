@@ -490,8 +490,8 @@ class Storage(Protocol):
 class SQLiteStorage(Initializable, HealthCheckable):
     """SQLite storage with WAL, foreign keys, and nested transactions."""
 
-    def __init__(self, db_path: Path) -> None:
-        self.db_path = db_path
+    def __init__(self, db_path: Path | str) -> None:
+        self.db_path = Path(db_path)
         self._conn: sqlite3.Connection | None = None
         self._in_tx: bool = False
 
