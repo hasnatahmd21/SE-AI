@@ -751,12 +751,13 @@ class ApprovalPolicy:
                 return (StageOutcome.BLOCKED,
                         "CRITICAL risk requires explicit manual approval",
                         "")
-            # Any warn on CRITICAL requires reviewer note, still allowed
+            # CRITICAL changes require a clean evidence chain; explicit
+            # approval cannot override unresolved warnings.
             if warns:
-                return (StageOutcome.WARN,
-                        f"CRITICAL risk approved by {manual_approval} "
-                        f"despite {len(warns)} warning(s)",
-                        f"policy:manual:{manual_approval}")
+                return (StageOutcome.BLOCKED,
+                        f"CRITICAL risk has {len(warns)} warning(s); "
+                        "resolve them before promotion",
+                        "")
             return (StageOutcome.PASS,
                     f"CRITICAL risk approved by {manual_approval}",
                     f"policy:manual:{manual_approval}")
@@ -868,8 +869,23 @@ class GovernanceEngine:
             return report
 
         # ---- Stage 8: promotion ----
-        next_version = self._next_version(change.scope)
-        prev_active = self._active_version(change.scope)
+        if self._promotion_count(
+            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
+        ) >= self.max_changes_per_scope:
+            report.final_status = PromotionStatus.HELD
+            report.rationale = (
+                f"promotion cap reached for scope '{change.scope}'"
+            )
+            self._record_change(report, project_id=project_id,
+                                 scope_key_prefix=scope_key_prefix)
+            return report
+
+        next_version = self._next_version(
+            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
+        )
+        prev_active = self._active_version(
+            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
+        )
         report.promotion_version = next_version
         report.final_status = PromotionStatus.PROMOTED
         report.stages.append(StageResult(
@@ -991,25 +1007,54 @@ class GovernanceEngine:
         return rec
 
     # ---- version helpers ----
-    def _next_version(self, scope: str) -> int:
+    def _entries_for_scope(
+        self, scope: str, *, project_id: str = "",
+        scope_key_prefix: str = "self_change",
+    ) -> list[MemoryEntry]:
+        if self.memory is None:
+            return []
+        return self.memory.find(
+            kind=MemoryKind.PROJECT, status=None,
+            scope_type=MemoryScope.PROJECT,
+            scope_id=project_id or "default",
+            key_like=f"{scope_key_prefix}:{scope}:",
+        )
+
+    def _promotion_count(
+        self, scope: str, *, project_id: str = "",
+        scope_key_prefix: str = "self_change",
+    ) -> int:
+        return sum(
+            1 for e in self._entries_for_scope(
+                scope, project_id=project_id, scope_key_prefix=scope_key_prefix
+            )
+            if e.content.get("final_status") == PromotionStatus.PROMOTED.value
+        )
+
+    def _next_version(
+        self, scope: str, *, project_id: str = "",
+        scope_key_prefix: str = "self_change",
+    ) -> int:
         if self.memory is None:
             return 1
-        entries = self.memory.find(
-            kind=MemoryKind.PROJECT, status=None,
-            key_like=f"self_change:{scope}:",
+        entries = self._entries_for_scope(
+            scope, project_id=project_id, scope_key_prefix=scope_key_prefix
         )
         versions = [int(e.content.get("version", 0))
                     for e in entries
                     if e.content.get("change_id")]
         return max(versions + [0]) + 1
 
-    def _active_version(self, scope: str) -> int | None:
+    def _active_version(
+        self, scope: str, *, project_id: str = "",
+        scope_key_prefix: str = "self_change",
+    ) -> int | None:
         if self.memory is None:
             return None
-        entries = self.memory.find(
-            kind=MemoryKind.PROJECT, status="active",
-            key_like=f"self_change:{scope}:",
+        entries = self._entries_for_scope(
+            scope, project_id=project_id, scope_key_prefix=scope_key_prefix
         )
+        entries = [e for e in entries if e.status.value == "active"]
         versions = [int(e.content.get("version", 0))
                     for e in entries]
         return max(versions) if versions else None
