@@ -98,6 +98,7 @@ def test_json_quote_repair_handles_compact_variable_concatenation():
     assert payload["invalid_example"] == (
         'SELECT * FROM users WHERE user_id = \'"+user_input+"\''
     )
+    assert payload["problem"] == "Untrusted input can alter database query semantics."
 
 def test_json_quote_repair_handles_embedded_go_code_quotes():
     line = (
