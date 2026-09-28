@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage, ValidationError
+from sebrain.c01 import SQLiteStorage, ValidationError, TransactionError
 from sebrain.c02 import Ontology
 from sebrain.c04 import MemoryKind, MemoryScope, MemoryStore
 from sebrain.c28 import (
@@ -33,7 +33,7 @@ def test_c28_stop_persistence_rolls_back_if_failure_memory_write_fails():
         )
         try:
             repo.save(assessment, project_id="p1")
-        except RuntimeError as exc:
+        except TransactionError as exc:
             assert "synthetic failure" in str(exc)
         else:
             raise AssertionError("persistence failure was swallowed")
@@ -71,7 +71,7 @@ def test_c28_stop_persistence_rolls_back_if_ontology_write_fails():
         )
         try:
             repo.save(assessment, project_id="p1")
-        except ValidationError as exc:
+        except TransactionError as exc:
             assert "synthetic ontology failure" in str(exc)
         else:
             raise AssertionError("ontology failure was swallowed")
