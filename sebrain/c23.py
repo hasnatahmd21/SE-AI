@@ -204,6 +204,7 @@ class FileScanResult:
     syntax_ok: bool = True
     skipped: bool = False
     skipped_reason: str = ""
+    analysis_errors: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -213,6 +214,7 @@ class FileScanResult:
             "syntax_ok": self.syntax_ok,
             "skipped": self.skipped,
             "skipped_reason": self.skipped_reason,
+            "analysis_errors": list(self.analysis_errors),
         }
 
 
@@ -964,8 +966,16 @@ class SecurityAnalyzer:
                     try:
                         findings.extend(rule.check(source, filename))
                     except Exception as exc:
-                        log.warning("c23.rule_error",
-                                    rule=rule.rule_id, error=str(exc))
+                        error = {
+                            "rule_id": rule.rule_id,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                        result.analysis_errors.append(error)
+                        log.warning(
+                            "c23.rule_error",
+                            rule=rule.rule_id,
+                            error=str(exc),
+                        )
 
         # Dedup (rule_id, line) — keep first
         seen: set[tuple[str, int]] = set()
