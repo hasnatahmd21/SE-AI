@@ -1236,7 +1236,7 @@ class KnowledgeFabricLoader:
             if isinstance(payload, dict) and (
                 payload.get("record_id") or payload.get("id")
             ) and field_name in payload:
-                candidates.append(field_candidate)
+                candidates.insert(0, field_candidate)
 
         if error_pos is not None and 0 <= error_pos < len(line):
             matches = list(field_key_re.finditer(line, 0, error_pos + 1))
