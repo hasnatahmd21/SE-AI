@@ -634,6 +634,38 @@ class KnowledgeFabricLoader:
             return None
 
         candidates: list[str] = []
+        # JSON strings cannot contain literal control characters. Preserve their
+        # meaning by escaping only control characters encountered while inside
+        # a string value; do not alter structural whitespace outside strings.
+        control_chars = {"\\b": "\\\\b", "\\f": "\\\\f", "\\n": "\\\\n", "\\r": "\\\\r", "\\t": "\\\\t"}
+        control_buf: list[str] = []
+        control_in_string = False
+        control_escaped = False
+        control_changed = False
+        for char in line:
+            if control_in_string:
+                if control_escaped:
+                    control_buf.append(char)
+                    control_escaped = False
+                elif char == "\\\\":
+                    control_buf.append(char)
+                    control_escaped = True
+                elif char == '"':
+                    control_buf.append(char)
+                    control_in_string = False
+                elif char in "\\b\\f\\n\\r\\t":
+                    control_buf.append(control_chars[char])
+                    control_changed = True
+                else:
+                    control_buf.append(char)
+            else:
+                control_buf.append(char)
+                if char == '"':
+                    control_in_string = True
+        control_repaired = "".join(control_buf)
+        if control_changed:
+            candidates.append(control_repaired)
+
         # Some generated records embed a code/string concatenation expression
         # directly inside a JSON string, e.g. \\"prefix \\" + variable + \\"suffix\\".
         # This is not valid JSON, but the intended record value is deterministic:
