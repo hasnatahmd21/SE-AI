@@ -48,5 +48,5 @@ jobs:
       - name: Install package
         run: python -m pip install -e .
 
-      - name: Validate real D01-D58 fabric
+      - name: Validate real intended Knowledge Fabric
         run: python scripts/validate_knowledge_fabric.py
