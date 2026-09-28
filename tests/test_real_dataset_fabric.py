@@ -15,7 +15,9 @@ def test_grouped_fabric_exports_are_discovered(tmp_path: Path):
     expected = {f"D{i:02d}" for i in range(1, 59) if i != 26}
     found = set(report["found_dataset_ids"])
     missing = set(report["missing_dataset_ids"])
-    assert {"D01", "D10", "D18", "D25", "D40", "D50", "D58"} <= found
+    assert {"D01", "D10", "D18", "D25", "D27", "D40", "D50", "D58"} <= found
+    assert "D26" not in found
+    assert "D26" not in missing
     assert found | missing == expected
     assert not found & missing
     assert len(found) == 57
