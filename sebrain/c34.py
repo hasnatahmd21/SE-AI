@@ -1020,6 +1020,36 @@ class KnowledgeFabricLoader:
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
         field_start = line.rfind(field_marker)
+        # Embedded code/string concatenations may occur in any field.
+        # Preserve their literal semantics by escaping only the quote characters
+        # within the containing field, then require complete JSON validation.
+        expression_marker = '" + "'
+        if expression_marker in line:
+            marker_index = line.find(expression_marker)
+            expression_field_start = line.rfind(field_marker, 0, marker_index)
+            if expression_field_start >= 0:
+                expression_value_start = expression_field_start + len(field_marker)
+                expression_field_end = line.find('","', marker_index)
+                if expression_field_end < 0:
+                    expression_field_end = line.rfind('"}')
+                if expression_field_end > expression_value_start:
+                    expression_value = line[
+                        expression_value_start:expression_field_end
+                    ]
+                    expression_candidate = (
+                        line[:expression_value_start]
+                        + expression_value.replace('"', '\\\"')
+                        + line[expression_field_end:]
+                    )
+                    try:
+                        payload = json.loads(expression_candidate)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if isinstance(payload, dict) and (
+                        payload.get("record_id") or payload.get("id")
+                    ):
+                        candidates.append(expression_candidate)
+
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
             value_start = field_start + len(field_marker)
