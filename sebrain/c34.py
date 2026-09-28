@@ -1210,6 +1210,10 @@ class KnowledgeFabricLoader:
             and structural_stack
             and not structural_mismatch
             and not has_concat_syntax
+            and not any(
+                f'"{field}"' in line
+                for field in ("source_code", "corrected_code", "incorrect_code", "invalid_example")
+            )
             and (len(line) >= 500 or len(structural_stack) > 1)
         ):
             closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
