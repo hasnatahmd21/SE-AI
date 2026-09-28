@@ -1214,6 +1214,7 @@ class KnowledgeFabricLoader:
             return "".join(output), changed
 
         def add_field_candidate(
+            field_name: str,
             value_start: int,
             value_end: int,
         ) -> None:
@@ -1234,7 +1235,7 @@ class KnowledgeFabricLoader:
                 return
             if isinstance(payload, dict) and (
                 payload.get("record_id") or payload.get("id")
-            ):
+            ) and field_name in payload:
                 candidates.append(field_candidate)
 
         if error_pos is not None and 0 <= error_pos < len(line):
@@ -1245,12 +1246,17 @@ class KnowledgeFabricLoader:
                 boundary_match = field_boundary_re.search(line, error_pos)
                 if boundary_match is not None:
                     add_field_candidate(
+                        field_match.group(1),
                         value_start,
                         boundary_match.start(),
                     )
                 terminal_position = line.rfind('"}')
                 if terminal_position >= value_start:
-                    add_field_candidate(value_start, terminal_position)
+                    add_field_candidate(
+                        field_match.group(1),
+                        value_start,
+                        terminal_position,
+                    )
         else:
             field_matches = list(field_key_re.finditer(line))
             for field_match in field_matches:
