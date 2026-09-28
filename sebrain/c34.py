@@ -480,14 +480,7 @@ class KnowledgeFabricLoader:
 
     @staticmethod
     def _repair_unescaped_json_quotes(line: str) -> str | None:
-        """Repair only provable quote defects inside JSON string values.
-
-        Knowledge Fabric exports may contain code/prose with raw double quotes.
-        A quote is treated as structural only when the following token is
-        consistent with a JSON boundary for the current container. The repair
-        is accepted only when the complete repaired object parses and contains
-        a record identity.
-        """
+        """Repair only provable quote defects inside JSON string values."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
             return None
 
@@ -533,7 +526,7 @@ class KnowledgeFabricLoader:
                 chars.append(char)
                 escaped = False
                 continue
-            if char == "\\":
+            if char == "\":
                 chars.append(char)
                 escaped = True
                 continue
@@ -570,56 +563,52 @@ class KnowledgeFabricLoader:
 
     @staticmethod
     def _repair_common_json_defects(line: str) -> str | None:
-        """Apply only syntax-preserving, narrowly scoped export repairs."""
+        """Apply only narrowly scoped, deterministic export repairs."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
             return None
 
         candidates: list[str] = []
 
-        # A generated boolean marker was occasionally emitted without a JSON
-        # value. Treating the marker as true is only allowed for this known
-        # field because its meaning is unambiguous in the dataset schema.
         if '"language_agnostic","' in line:
             candidates.append(
                 line.replace('"language_agnostic","', '"language_agnostic":true,"')
             )
 
-        # A malformed array item was emitted as an unterminated quote before
-        # the closing bracket. Remove only that syntactic artifact.
-        if ',"] ,' in line:
-            candidates.append(line.replace(',"] ,', '] ,'))
-        if ',"] ,' not in line and ',"] ,' in line:
-            candidates.append(line.replace(',"] ,', '] ,'))
         if ',"]' in line:
             candidates.append(line.replace(',"]', ']'))
 
-        # JSON permits no trailing commas; removing a trailing comma before a
-        # closing object/array preserves the represented values.
         if ",}" in line:
             candidates.append(line.replace(",}", "}"))
+
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
-        # Some exports omit the final outer object brace. Append only when a
-        # quote-aware structural scan proves an unmatched top-level object.
-        balance = KnowledgeFabricLoader._balanced_delimiter_completion(line)
-        if balance is not None:
-            candidates.append(balance)
+        completed = KnowledgeFabricLoader._balanced_delimiter_completion(line)
+        if completed is not None:
+            candidates.append(completed)
 
-        candidates.extend(
-            candidate
-            for candidate in (
-                KnowledgeFabricLoader._repair_unescaped_json_quotes(line),
+        quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
+        if quote_repaired is not None:
+            candidates.append(quote_repaired)
+
+            if ',"]' in quote_repaired:
+                candidates.append(quote_repaired.replace(',"]', ']'))
+            if ",}" in quote_repaired:
+                candidates.append(quote_repaired.replace(",}", "}"))
+            completed = KnowledgeFabricLoader._balanced_delimiter_completion(
+                quote_repaired
             )
-            if candidate is not None
-        )
+            if completed is not None:
+                candidates.append(completed)
 
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-            if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+            if isinstance(payload, dict) and (
+                payload.get("record_id") or payload.get("id")
+            ):
                 return candidate
 
         return None
@@ -636,7 +625,7 @@ class KnowledgeFabricLoader:
                 if escaped:
                     escaped = False
                     continue
-                if char == "\\":
+                if char == "\":
                     escaped = True
                     continue
                 if char == '"':
@@ -661,6 +650,117 @@ class KnowledgeFabricLoader:
             opening = stack.pop()
             completed += "}" if opening == "{" else "]"
         return completed
+
+    @staticmethod
+    def _parse_source(
+        text: str, path: Path
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        """Parse grouped Knowledge Fabric exports.
+
+        Dataset files are intentionally human-readable exports: explanatory
+        prose/markdown may surround JSON records. The parser therefore scans
+        the entire byte/text stream for complete JSON values instead of
+        assuming every JSON value begins at a physical line boundary.
+        """
+
+        if not text.strip():
+            return "empty", [], [], []
+
+        decoder = json.JSONDecoder()
+        documents: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        i = 0
+        json_values = 0
+        skipped_regions = 0
+
+        while i < len(text):
+            # Find the next possible JSON value. This deliberately skips
+            # prose, headings, code fences, and other human-readable text.
+            next_obj = text.find("{", i)
+            next_arr = text.find("[", i)
+            candidates = [p for p in (next_obj, next_arr) if p >= 0]
+            if not candidates:
+                if text[i:].strip():
+                    skipped_regions += 1
+                break
+
+            start = min(candidates)
+            if text[i:start].strip():
+                skipped_regions += 1
+
+            try:
+                payload, end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                # Before discarding a malformed line, apply the loader's
+                # deliberately narrow quote-repair rule to record objects.
+                # This preserves the ability to recover generated code/prose
+                # containing raw double quotes without performing broad or
+                # unsafe structural repair.
+                line_end = text.find("\n", start)
+                if line_end < 0:
+                    line_end = len(text)
+                candidate_line = text[start:line_end]
+                repaired = KnowledgeFabricLoader._repair_common_json_defects(
+                    candidate_line
+                )
+                if repaired is not None:
+                    try:
+                        payload = json.loads(repaired)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if payload is not None:
+                        json_values += 1
+                        line_no = text.count("\n", 0, start) + 1
+                        document = KnowledgeFabricLoader._document_from_payload(
+                            payload, line_no
+                        )
+                        if document is not None:
+                            documents.append(document)
+                        i = line_end
+                        continue
+
+                # A brace in prose/code is not necessarily a JSON document.
+                # Advance one character so a later real JSON value can still
+                # be discovered. Limit diagnostics to avoid huge reports.
+                i = start + 1
+                continue
+
+            json_values += 1
+            line_no = text.count("\n", 0, start) + 1
+            document = KnowledgeFabricLoader._document_from_payload(
+                payload, line_no
+            )
+            if document is not None:
+                documents.append(document)
+            i = end
+
+        if skipped_regions:
+            warnings.append({
+                "file": path.name,
+                "warning": "ignored non-JSON explanatory/header regions",
+                "region_count": skipped_regions,
+            })
+
+        if json_values == 0:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "no JSON dataset records/documents were found",
+            })
+        elif not documents:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "JSON values were found but none contained dataset records",
+            })
+
+        return "json_document_stream", documents, warnings, errors
 
     @staticmethod
     def _document_from_payload(
@@ -712,6 +812,9 @@ class KnowledgeFabricLoader:
             return {"context": {}, "manifest": {}, "records": records}
 
         return None
+            return {"context": {}, "manifest": {}, "records": records}
+
+        return None
 
     @staticmethod
     def _looks_like_record(payload: dict[str, Any]) -> bool:
@@ -722,7 +825,14 @@ class KnowledgeFabricLoader:
             return True
         recordish = sum(
             bool(payload.get(key))
-            for key in ("topic", "concept", "knowledge_type", "question", "answer", "objective")
+            for key in (
+                "topic",
+                "concept",
+                "knowledge_type",
+                "question",
+                "answer",
+                "objective",
+            )
         )
         return recordish >= 3
 
