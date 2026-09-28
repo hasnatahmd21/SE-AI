@@ -19,8 +19,7 @@ class FailingSourceStorage(SQLiteStorage):
 def test_whole_file_load_rolls_back_on_metadata_failure(tmp_path: Path):
     p = tmp_path / "D01.jsonl"
     p.write_text(
-        '{"record_id":"D01-R001","dataset_id":"D01","topic":"atomic"}
-',
+        '{"record_id":"D01-R001","dataset_id":"D01","topic":"atomic"}\n',
         encoding="utf-8",
     )
     storage = FailingSourceStorage(tmp_path / "fabric.db")
