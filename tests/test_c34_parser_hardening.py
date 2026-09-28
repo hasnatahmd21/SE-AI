@@ -113,3 +113,11 @@ def test_json_quote_repair_handles_embedded_go_code_quotes():
     assert payload["record_id"] == "D32-CODE-QUOTE-001"
     assert 'sql.Open("driver-name", dsn)' in payload["source_code"]
     assert 'errors.New("unsupported scheme")' in payload["source_code"]
+
+
+def test_bounded_code_field_repair():
+    source = Path("datasets/D31 - D35")
+    raw_line = source.read_text(encoding="utf-8").splitlines()[1442]
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(raw_line, error_pos=870)
+    assert repaired is not None
+    assert json.loads(repaired)["record_id"] == "D32-B41-R001"
