@@ -1195,7 +1195,7 @@ class KnowledgeFabricLoader:
                 structural_in_string = True
             elif char in "{[":
                 structural_stack.append(char)
-            elif char in "}]":"[:2]:
+            elif char in "}]":
                 expected = "{" if char == "}" else "["
                 if structural_stack and structural_stack[-1] == expected:
                     structural_stack.pop()
