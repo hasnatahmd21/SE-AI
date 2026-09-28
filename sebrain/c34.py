@@ -1345,9 +1345,7 @@ class KnowledgeFabricLoader:
         # must still parse as a record before it can be accepted.
         expression_repaired = (
             line.replace('" +', '\\" +')
-            .replace('"+', '\\"+')
             .replace('+ "', '+ \\"')
-            .replace('+"', '+\\"')
         )
         if expression_repaired != line:
             try:
