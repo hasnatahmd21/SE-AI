@@ -563,8 +563,8 @@ class LeakChecker:
         tags: Sequence[str] = (),
     ) -> tuple[LeakVerdict, list[str]]:
         reasons: list[str] = []
-        if not source_project_id or not target_project_id:
-            return (LeakVerdict.SAFE, ["missing project ids; nothing to scan"])
+        if not source_project_id:
+            return (LeakVerdict.SAFE, ["missing source project id; nothing to scan"])
         blob = json.dumps(content, default=str) + " " + " ".join(tags)
         # 1. source project id appears in payload
         if source_project_id in blob:
@@ -582,7 +582,7 @@ class LeakChecker:
             reasons.append(f"foreign project tags: {foreign_tags}")
         # 3. target project id appearing when we did NOT intend that
         # (often indicates copy-paste)
-        if source_project_id != target_project_id and \
+        if target_project_id and source_project_id != target_project_id and \
                 target_project_id in blob:
             reasons.append(
                 f"payload mentions target project id '{target_project_id}' — "
