@@ -1275,15 +1275,32 @@ class KnowledgeFabricLoader:
                 candidates.append(quote_repaired.replace(',"]', ']'))
             if ",}" in quote_repaired:
                 candidates.append(quote_repaired.replace(",}", "}"))
+        contract_keys = (
+            "record_id", "dataset_id", "batch_id", "dataset", "batch",
+            "topic", "subtopic", "concept", "knowledge_type", "question",
+            "answer", "explanation", "objective", "requirements", "constraints",
+            "inputs", "outputs", "source_code", "correct_code", "corrected_code",
+            "incorrect_code", "invalid_example", "problem", "failure_mode",
+            "root_cause", "cause", "solution", "alternative", "tradeoff", "rule",
+            "verification", "verification_guidance", "verification_method",
+            "provenance", "relationships", "execution_status", "validation_status",
+            "title", "decision_question", "option_a", "option_b", "decision_factors",
+            "expected_behavior", "testing", "testing_guidance",
+        )
+        expected_keys = {key for key in contract_keys if f'"{key}"' in line}
+
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-            if isinstance(payload, dict) and (
+            if not isinstance(payload, dict) or not (
                 payload.get("record_id") or payload.get("id")
             ):
-                return candidate
+                continue
+            if any(key not in payload for key in expected_keys):
+                continue
+            return candidate
 
         return None
 
