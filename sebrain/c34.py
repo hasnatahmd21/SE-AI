@@ -650,6 +650,49 @@ class KnowledgeFabricLoader:
         return repaired
 
     @staticmethod
+    def _repair_terminal_string_quote(line: str) -> str | None:
+        """Repair a single missing quote immediately before a final delimiter."""
+        stripped = line.rstrip()
+        if not stripped or stripped[-1] not in "}]":
+            return None
+
+        in_string = False
+        escaped = False
+        stack: list[str] = []
+        for char in stripped:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char in "{[":
+                stack.append(char)
+            elif char in "}]":
+                expected = "{" if char == "}" else "["
+                if stack and stack[-1] == expected:
+                    stack.pop()
+
+        if not in_string:
+            return None
+
+        # The final delimiter was consumed as string content because the
+        # preceding string quote is missing. Insert exactly one quote before
+        # that delimiter and accept the repair only if JSON validates.
+        repaired = stripped[:-1] + '"' + stripped[-1]
+        try:
+            payload = json.loads(repaired)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+            return repaired
+        return None
+
+    @staticmethod
     def _repair_common_json_defects(line: str) -> str | None:
         """Apply only narrowly scoped, deterministic export repairs."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
@@ -693,6 +736,10 @@ class KnowledgeFabricLoader:
         # survive repair byte-for-byte at the semantic string level. The repair
         # layer is responsible only for making the surrounding JSON valid.
         
+        terminal_quote_repaired = KnowledgeFabricLoader._repair_terminal_string_quote(line)
+        if terminal_quote_repaired is not None:
+            candidates.append(terminal_quote_repaired)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
