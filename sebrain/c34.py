@@ -678,6 +678,20 @@ class KnowledgeFabricLoader:
         if concatenated != line:
             candidates.append(concatenated)
 
+        # A common exporter form puts the whole expression between JSON
+        # string delimiters: "literal " + "VALUE" + " suffix". Normalize
+        # that complete expression while preserving the JSON string boundary.
+        full_concat_pattern = re.compile(
+            r'"(?P<left>[^"\\n]*)"\\s*\\+\\s*"(?P<middle>[^"\\n]*)"'
+            r'\\s*\\+\\s*"(?P<right>[^"\\n]*)"'
+        )
+        full_concatenated = full_concat_pattern.sub(
+            lambda m: '"' + m.group("left") + m.group("middle") + m.group("right") + '"',
+            line,
+        )
+        if full_concatenated != line:
+            candidates.append(full_concatenated)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
