@@ -590,30 +590,20 @@ class KnowledgeFabricLoader:
 
     @staticmethod
     def _repair_record_string_with_embedded_quotes(line: str) -> str | None:
-        """Repair one terminal JSON string field containing raw double quotes.
-
-        This conservative repair only runs for record objects and validates
-        the complete candidate with json.loads before returning it.
-        """
+        """Repair raw double quotes inside the final string value of a record."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
             return None
-
-        field_pattern = re.compile(
-            r'(?P<prefix>"[A-Za-z_][A-Za-z0-9_]*"\s*:\s*")'
-            r'(?P<value>.*)'
-            r'(?P<suffix>"\s*}\s*)
-        match = field_pattern.search(line)
-        if not match:
+        field_marker = '":"'
+        field_start = line.rfind(field_marker)
+        if field_start < 0:
             return None
-
-        value = match.group("value")
-        escaped_value = value.replace("\\", "\\\\")
-        escaped_value = re.sub(r'(?<!\\)"', r'\\"', escaped_value)
-        candidate = (
-            line[: match.start("value")]
-            + escaped_value
-            + line[match.start("suffix") :]
-        )
+        value_start = field_start + len(field_marker)
+        value_end = line.rfind('"}')
+        if value_end < value_start:
+            return None
+        value = line[value_start:value_end]
+        escaped = value.replace('"', '\\\"')
+        candidate = line[:value_start] + escaped + line[value_end:]
         try:
             payload = json.loads(candidate)
         except json.JSONDecodeError:
