@@ -607,8 +607,13 @@ class KnowledgeFabricLoader:
             # concatenation inside a JSON string, e.g. '" + "USER_INPUT" + "'.
             # Normalize only that exact structural artifact; preserve all other
             # text verbatim and then validate the resulting JSON.
-            concat_match = re.match(
-                r'''^(.*)'"\s*\+\s*"([^"]*)"\s*\+\s*"'(.*)
+            start_marker = "'\\" + \""
+            end_marker = "\" + \"'"
+            if start_marker in value:
+                left, remainder = value.split(start_marker, 1)
+                if end_marker in remainder:
+                    middle, tail = remainder.split(end_marker, 1)
+                    value = left + "'" + middle + "'" + tail
             escaped_value = value.replace('"', '\\"')
             candidate = line[:value_start] + escaped_value + line[value_end:]
             try:
