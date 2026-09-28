@@ -778,6 +778,19 @@ class KnowledgeFabricLoader:
                 ):
                     candidates.append(candidate)
 
+        # A decoder-position repair may fix one quote in a code string
+        # while leaving a paired raw quote in the same field. Feed each
+        # position-derived candidate through the existing context-aware quote
+        # state machine once more; acceptance still requires full JSON parsing.
+        for local_candidate in list(candidates):
+            if local_candidate == line:
+                continue
+            local_quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(
+                local_candidate
+            )
+            if local_quote_repaired is not None:
+                candidates.append(local_quote_repaired)
+
         # Some grouped exports wrap each JSON record in a single-quote
         # transport wrapper, producing lines such as
         # '{"record_id":"...","answer":"..."}'.  The apostrophes are outside
