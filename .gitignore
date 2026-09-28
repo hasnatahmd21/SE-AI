@@ -10,3 +10,4 @@ dist/
 .sebrain_ui/
 *.sqlite3
 *.db
+.sebrain_validation/
