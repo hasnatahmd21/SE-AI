@@ -865,7 +865,9 @@ class KnowledgeFabricLoader:
                         "line": line_no,
                         "error": "invalid JSON value",
                         "detail": str(getattr(exc, "msg", "") or "JSON decode failed"),
+                        "error_pos": getattr(exc, "pos", None),
                         "source_preview": candidate_line[:500],
+                        "source_context": (candidate_line[max(0, int(getattr(exc, "pos", 0) or 0) - 120): int(getattr(exc, "pos", 0) or 0) + 120]),
                     })
                 else:
                     warnings.append({
