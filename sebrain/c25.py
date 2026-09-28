@@ -1172,6 +1172,8 @@ class CodebaseUnderstanding:
         max_modules: int = 5000,
         max_impact_depth: int = 8,
         max_impact: int = 500,
+        memory: MemoryStore | None = None,
+        ontology: Ontology | None = None,
     ) -> None:
         if max_modules < 1:
             raise ValidationError("max_modules must be >= 1")
@@ -1184,6 +1186,10 @@ class CodebaseUnderstanding:
             max_depth=max_impact_depth, max_impact=max_impact,
         )
         self.safety = SafetyChecker()
+        self._repository = (
+            UnderstandingRepository(memory, ontology)
+            if memory is not None else None
+        )
 
     # ---- discovery / index ----
     def analyze(
@@ -1311,8 +1317,12 @@ class CodebaseUnderstanding:
         self, bundle: CodebaseUnderstandingBundle, *,
         project_id: str = "",
     ) -> str:
-        """Persist to C04 memory + C02 ontology (if attached)."""
-        return bundle.id
+        """Persist an understanding bundle through the configured repository."""
+        if self._repository is None:
+            raise ValidationError(
+                "persistence is not configured; provide memory=MemoryStore(...)"
+            )
+        return self._repository.save(bundle, project_id=project_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
