@@ -492,61 +492,66 @@ class KnowledgeFabricLoader:
 
         decoder = json.JSONDecoder()
         documents: list[dict[str, Any]] = []
-        skipped_fragments = 0
-        invalid_fragments = 0
+        warnings: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        lines = text.splitlines(keepends=True)
         cursor = 0
+        line_index = 0
+        skipped_lines = 0
+        invalid_json_lines = 0
 
-        while cursor < len(text):
-            object_pos = text.find("{", cursor)
-            array_pos = text.find("[", cursor)
-            candidates = [p for p in (object_pos, array_pos) if p >= 0]
-            if not candidates:
-                if text[cursor:].strip():
-                    skipped_fragments += 1
-                break
+        while line_index < len(lines):
+            line = lines[line_index]
+            leading = len(line) - len(line.lstrip())
+            stripped = line[leading:]
+            start = cursor + leading
 
-            start = min(candidates)
-            if text[cursor:start].strip():
-                skipped_fragments += 1
+            if not stripped.startswith(("{", "[")):
+                if stripped.strip():
+                    skipped_lines += 1
+                cursor += len(line)
+                line_index += 1
+                continue
 
             try:
                 payload, end = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
-                invalid_fragments += 1
-                cursor = start + 1
+                invalid_json_lines += 1
+                cursor += len(line)
+                line_index += 1
                 continue
 
-            line_no = text.count("\n", 0, start) + 1
-            cursor = end
-
             document = KnowledgeFabricLoader._document_from_payload(
-                payload, line_no
+                payload, line_index + 1
             )
             if document is not None:
                 documents.append(document)
 
-        warnings: list[dict[str, Any]] = []
-        errors: list[dict[str, Any]] = []
-        if skipped_fragments:
+            consumed_newlines = text.count("\n", 0, end)
+            line_index = consumed_newlines + 1
+            cursor = sum(len(item) for item in lines[:line_index])
+
+        if skipped_lines:
             warnings.append({
                 "file": path.name,
-                "warning": "ignored non-JSON text/header fragments",
-                "fragment_count": skipped_fragments,
+                "warning": "ignored non-JSON header/preamble lines",
+                "line_count": skipped_lines,
             })
-        if invalid_fragments:
+        if invalid_json_lines:
             errors.append({
                 "file": path.name,
-                "line": None,
-                "error": "unparseable JSON fragments were encountered",
-                "fragment_count": invalid_fragments,
+                "error": "invalid JSON document starting on one or more lines",
+                "line_count": invalid_json_lines,
             })
-
         if not documents:
             errors.append({
                 "file": path.name,
                 "line": 1,
                 "error": "no dataset records/documents were parsed",
             })
+
+        # A valid source may contain only JSON documents plus explanatory
+        # header lines. JSON parse errors are still fatal for source readiness.
         return "json_document_stream", documents, warnings, errors
 
     @staticmethod
