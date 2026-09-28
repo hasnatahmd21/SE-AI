@@ -599,9 +599,714 @@ class KnowledgeFabricLoader:
             return None
 
         field_pattern = re.compile(
-            r'(?P<prefix>"[A-Za-z_][A-Za-z0-9_]*"\s*:\s*")'
+            r'(?P<prefix>"invalid_example"\s*:\s*")'
             r'(?P<value>.*)'
-            r'(?P<suffix>"\s*(?:,|})\s*)$'
+            r'(?P<suffix>"\s*}\s*)
+        )
+        match = field_pattern.search(line)
+        if not match:
+            return None
+
+        value = match.group("value")
+        escaped_value = value.replace("\\", "\\\\")
+        escaped_value = re.sub(r'(?<!\\)"', r'\\"', escaped_value)
+        candidate = (
+            line[: match.start("value")]
+            + escaped_value
+            + line[match.start("suffix") :]
+        )
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, dict) and (payload.get("record_id") or payload.get("id")):
+            return candidate
+        return None
+    @staticmethod
+    def _repair_common_json_defects(line: str) -> str | None:
+        """Apply only narrowly scoped, deterministic export repairs."""
+        if not line.lstrip().startswith("{") or '"record_id"' not in line:
+            return None
+
+        candidates: list[str] = []
+
+        if '"language_agnostic","' in line:
+            candidates.append(
+                line.replace('"language_agnostic","', '"language_agnostic":true,"')
+            )
+
+        if ',"]' in line:
+            candidates.append(line.replace(',"]', ']'))
+
+        if ",}" in line:
+            candidates.append(line.replace(",}", "}"))
+
+        if ",]" in line:
+            candidates.append(line.replace(",]", "]"))
+
+        completed = KnowledgeFabricLoader._balanced_delimiter_completion(line)
+        if completed is not None:
+            candidates.append(completed)
+
+        terminal_string_repaired = (
+            KnowledgeFabricLoader._repair_record_string_with_embedded_quotes(line)
+        )
+        if terminal_string_repaired is not None:
+            candidates.append(terminal_string_repaired)
+
+        quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
+        if quote_repaired is not None:
+            candidates.append(quote_repaired)
+
+            if ',"]' in quote_repaired:
+                candidates.append(quote_repaired.replace(',"]', ']'))
+            if ",}" in quote_repaired:
+                candidates.append(quote_repaired.replace(",}", "}"))
+            completed = KnowledgeFabricLoader._balanced_delimiter_completion(
+                quote_repaired
+            )
+            if completed is not None:
+                candidates.append(completed)
+
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict) and (
+                payload.get("record_id") or payload.get("id")
+            ):
+                return candidate
+
+        return None
+
+    @staticmethod
+    def _balanced_delimiter_completion(line: str) -> str | None:
+        """Append only objectively missing closing JSON delimiters."""
+        in_string = False
+        escaped = False
+        stack: list[str] = []
+
+        for char in line:
+            if in_string:
+                if escaped:
+                    escaped = False
+                    continue
+                if char == "\\":
+                    escaped = True
+                    continue
+                if char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char in "{[":
+                stack.append(char)
+            elif char in "}]":
+                expected = "{" if char == "}" else "["
+                if not stack or stack[-1] != expected:
+                    return None
+                stack.pop()
+
+        if in_string or not stack:
+            return None
+
+        completed = line
+        while stack:
+            opening = stack.pop()
+            completed += "}" if opening == "{" else "]"
+        return completed
+
+    @staticmethod
+    def _parse_source(
+        text: str, path: Path
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        """Parse grouped Knowledge Fabric exports.
+
+        Dataset files are intentionally human-readable exports: explanatory
+        prose/markdown may surround JSON records. The parser therefore scans
+        the entire byte/text stream for complete JSON values instead of
+        assuming every JSON value begins at a physical line boundary.
+        """
+
+        if not text.strip():
+            return "empty", [], [], []
+
+        decoder = json.JSONDecoder()
+        documents: list[dict[str, Any]] = []
+        warnings: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        i = 0
+        json_values = 0
+        skipped_regions = 0
+
+        while i < len(text):
+            # Find the next possible JSON value. This deliberately skips
+            # prose, headings, code fences, and other human-readable text.
+            next_obj = text.find("{", i)
+            next_arr = text.find("[", i)
+            candidates = [p for p in (next_obj, next_arr) if p >= 0]
+            if not candidates:
+                if text[i:].strip():
+                    skipped_regions += 1
+                break
+
+            start = min(candidates)
+            if text[i:start].strip():
+                skipped_regions += 1
+
+            try:
+                payload, end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                # Before discarding a malformed line, apply the loader's
+                # deliberately narrow quote-repair rule to record objects.
+                # This preserves the ability to recover generated code/prose
+                # containing raw double quotes without performing broad or
+                # unsafe structural repair.
+                line_end = text.find("\n", start)
+                if line_end < 0:
+                    line_end = len(text)
+                candidate_line = text[start:line_end]
+                repaired = KnowledgeFabricLoader._repair_common_json_defects(
+                    candidate_line
+                )
+                if repaired is not None:
+                    try:
+                        payload = json.loads(repaired)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if payload is not None:
+                        json_values += 1
+                        warnings.append({
+                            "file": path.name,
+                            "line": text.count("\n", 0, start) + 1,
+                            "warning": "repaired narrowly scoped JSON string quoting in records",
+                        })
+                        line_no = text.count("\n", 0, start) + 1
+                        document = KnowledgeFabricLoader._document_from_payload(
+                            payload, line_no
+                        )
+                        if document is not None:
+                            documents.append(document)
+                        i = line_end
+                        continue
+
+                # A brace in prose/code is not necessarily a JSON document.
+                # Advance one character so a later real JSON value can still
+                # be discovered. Limit diagnostics to avoid huge reports.
+                i = start + 1
+                continue
+
+            json_values += 1
+            line_no = text.count("\n", 0, start) + 1
+            document = KnowledgeFabricLoader._document_from_payload(
+                payload, line_no
+            )
+            if document is not None:
+                documents.append(document)
+            i = end
+
+        if skipped_regions:
+            warnings.append({
+                "file": path.name,
+                "warning": "ignored non-JSON explanatory/header regions",
+                "region_count": skipped_regions,
+            })
+
+        if json_values == 0:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "no JSON dataset records/documents were found",
+            })
+        elif not documents:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "JSON values were found but none contained dataset records",
+            })
+
+        return "json_document_stream", documents, warnings, errors
+
+    @staticmethod
+    def _document_from_payload(
+        payload: Any, source_line: int
+    ) -> dict[str, Any] | None:
+        if isinstance(payload, dict):
+            manifest = payload.get("dataset_manifest")
+            if not isinstance(manifest, dict):
+                manifest = {}
+
+            records: list[dict[str, Any]] = []
+            if isinstance(payload.get("records"), list):
+                for item in payload["records"]:
+                    if isinstance(item, dict):
+                        records.append({
+                            "raw": item,
+                            "source_line": source_line,
+                            "source_line_text": _canonical_json(item),
+                        })
+            elif payload.get("record_id") or payload.get("id"):
+                records.append({
+                    "raw": payload,
+                    "source_line": source_line,
+                    "source_line_text": _canonical_json(payload),
+                })
+            else:
+                return None
+
+            context = dict(payload)
+            return {
+                "context": context,
+                "manifest": manifest,
+                "records": records,
+            }
+
+        if isinstance(payload, list):
+            records = [
+                {
+                    "raw": item,
+                    "source_line": source_line,
+                    "source_line_text": _canonical_json(item),
+                }
+                for item in payload
+                if isinstance(item, dict)
+                and KnowledgeFabricLoader._looks_like_record(item)
+            ]
+            if not records:
+                return None
+            return {"context": {}, "manifest": {}, "records": records}
+
+        return None
+
+    @staticmethod
+    def _looks_like_record(payload: dict[str, Any]) -> bool:
+        """Return True only for dictionaries that resemble dataset records."""
+        if payload.get("record_id") or payload.get("id"):
+            return True
+        if payload.get("dataset_id") or payload.get("dataset"):
+            return True
+        recordish = sum(
+            bool(payload.get(key))
+            for key in (
+                "topic",
+                "concept",
+                "knowledge_type",
+                "question",
+                "answer",
+                "objective",
+            )
+        )
+        return recordish >= 3
+
+    @staticmethod
+    def _normalise_dataset_id(value: Any) -> str | None:
+        if value is None:
+            return None
+        match = _DATASET_ID_RE.fullmatch(str(value).strip())
+        if not match:
+            return None
+        return f"D{int(match.group(1)):02d}"
+
+    def _resolve_dataset_id(
+        self,
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        source_name: str,
+    ) -> str | None:
+        for value in (
+            raw.get("dataset_id"),
+            raw.get("dataset"),
+            context.get("dataset_id"),
+            context.get("dataset"),
+            manifest.get("dataset_id"),
+        ):
+            dataset_id = self._normalise_dataset_id(value)
+            if dataset_id:
+                return dataset_id
+
+        record_id = str(raw.get("record_id") or raw.get("id") or "").strip()
+        match = _RECORD_DATASET_RE.match(record_id)
+        if match:
+            dataset_id = self._normalise_dataset_id(match.group(1))
+            if dataset_id:
+                return dataset_id
+
+        stem = Path(source_name).stem
+        direct = self._normalise_dataset_id(stem)
+        if direct:
+            return direct
+
+        range_match = _DATASET_RANGE_RE.fullmatch(source_name)
+        if range_match:
+            start = int(range_match.group(1))
+            end = int(range_match.group(2))
+            # A range name cannot identify one dataset when it contains more
+            # than one dataset, so only use this fallback for a single range.
+            if start == end:
+                return f"D{start:02d}"
+        return None
+
+    @staticmethod
+    def _catalog_value(
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        key: str,
+    ) -> str:
+        for source in (raw, context, manifest):
+            value = source.get(key)
+            if value is not None:
+                if isinstance(value, (dict, list)):
+                    return _canonical_json(value)
+                return str(value)
+        return ""
+
+    def _upsert_dataset_catalog(
+        self,
+        dataset_id: str,
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        source_file: str,
+    ) -> None:
+        manifest_json = manifest or {}
+        self.storage.execute(
+            """
+            INSERT INTO fabric_datasets
+              (dataset_id, dataset_name, dataset_version, schema_version, status,
+               language, authority, scope, scope_boundary, purpose, manifest_json,
+               source_file, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(dataset_id) DO UPDATE SET
+              dataset_name=CASE WHEN excluded.dataset_name != '' THEN excluded.dataset_name ELSE fabric_datasets.dataset_name END,
+              dataset_version=CASE WHEN excluded.dataset_version != '' THEN excluded.dataset_version ELSE fabric_datasets.dataset_version END,
+              schema_version=CASE WHEN excluded.schema_version != '' THEN excluded.schema_version ELSE fabric_datasets.schema_version END,
+              status=CASE WHEN excluded.status != '' THEN excluded.status ELSE fabric_datasets.status END,
+              language=CASE WHEN excluded.language != '' THEN excluded.language ELSE fabric_datasets.language END,
+              authority=CASE WHEN excluded.authority != '' THEN excluded.authority ELSE fabric_datasets.authority END,
+              scope=CASE WHEN excluded.scope != '' THEN excluded.scope ELSE fabric_datasets.scope END,
+              scope_boundary=CASE WHEN excluded.scope_boundary != '' THEN excluded.scope_boundary ELSE fabric_datasets.scope_boundary END,
+              purpose=CASE WHEN excluded.purpose != '' THEN excluded.purpose ELSE fabric_datasets.purpose END,
+              manifest_json=CASE WHEN excluded.manifest_json != '{}' THEN excluded.manifest_json ELSE fabric_datasets.manifest_json END,
+              source_file=excluded.source_file,
+              updated_at=excluded.updated_at;
+            """,
+            (
+                dataset_id,
+                self._catalog_value(raw, context, manifest, "dataset_name"),
+                self._catalog_value(raw, context, manifest, "dataset_version"),
+                self._catalog_value(raw, context, manifest, "schema_version"),
+                self._catalog_value(raw, context, manifest, "status"),
+                self._catalog_value(raw, context, manifest, "language"),
+                self._catalog_value(raw, context, manifest, "authority"),
+                self._catalog_value(raw, context, manifest, "scope"),
+                self._catalog_value(raw, context, manifest, "scope_boundary"),
+                self._catalog_value(raw, context, manifest, "purpose"),
+                _canonical_json(manifest_json),
+                source_file,
+                now_iso(),
+            ),
+        )
+
+    @staticmethod
+    def _content_hash(raw: dict[str, Any]) -> str:
+        return hashlib.sha256(_canonical_json(raw).encode("utf-8")).hexdigest()
+
+    def _insert_record(
+        self,
+        *,
+        dataset_id: str,
+        record_id: str,
+        raw: dict[str, Any],
+        source_file: str,
+        source_line: int | None,
+        source_line_text: str,
+    ) -> str:
+        content_hash = self._content_hash(raw)
+        existing = self.storage.query_one(
+            "SELECT content_hash FROM fabric_records WHERE record_id=?",
+            (record_id,),
+        )
+        if existing:
+            return (
+                "duplicate_same"
+                if existing["content_hash"] == content_hash
+                else "duplicate_conflict"
+            )
+
+        tags = raw.get("tags", [])
+        if tags is None:
+            tags = []
+        elif isinstance(tags, str):
+            tags = [tags]
+        elif not isinstance(tags, list):
+            tags = [str(tags)]
+        tags = [str(tag) for tag in tags]
+
+        search_parts: list[str] = []
+        for key, value in raw.items():
+            if isinstance(value, (str, int, float, bool)):
+                search_parts.append(f"{key}={value}")
+            elif isinstance(value, list):
+                search_parts.extend(str(item) for item in value if isinstance(item, (str, int, float, bool)))
+        search_text = " ".join(search_parts)
+
+        self.storage.execute(
+            """
+            INSERT INTO fabric_records
+              (record_id, dataset_id, topic, concept, knowledge_type, question,
+               answer, explanation, language, framework, version, tags_json,
+               raw_json, source_file, source_line, content_hash, search_text,
+               loaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                record_id,
+                dataset_id,
+                str(raw.get("topic", "")),
+                str(raw.get("concept", "")),
+                str(raw.get("knowledge_type", raw.get("type", ""))),
+                str(raw.get("question", "")),
+                str(raw.get("answer", "")),
+                str(raw.get("explanation", raw.get("principle", ""))),
+                str(raw.get("language", "")),
+                str(raw.get("framework", "")),
+                str(raw.get("version", raw.get("version_range", ""))),
+                json.dumps(tags, ensure_ascii=False, default=str),
+                _canonical_json(raw),
+                source_file,
+                source_line,
+                content_hash,
+                search_text,
+                now_iso(),
+            ),
+        )
+        return "inserted"
+
+    def _audit_occurrence(
+        self,
+        record_id: str,
+        dataset_id: str,
+        source_file: str,
+        source_line: int | None,
+        action: str,
+        content_hash: str,
+        raw: dict[str, Any],
+    ) -> None:
+        self.storage.execute(
+            """
+            INSERT INTO fabric_record_audit
+              (record_id, dataset_id, source_file, source_line, action,
+               content_hash, raw_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                record_id,
+                dataset_id,
+                source_file,
+                source_line,
+                action,
+                content_hash,
+                _canonical_json(raw),
+                now_iso(),
+            ),
+        )
+
+    def get_batch(
+        self,
+        dataset_id: str | None = None,
+        *,
+        batch_size: int = 200,
+        offset: int = 0,
+        language: str | None = None,
+        concept: str | None = None,
+    ) -> list[FabricRecord]:
+        if batch_size <= 0 or offset < 0:
+            raise ValueError("batch_size must be > 0 and offset must be >= 0")
+        sql = "SELECT * FROM fabric_records WHERE 1=1"
+        params: list[Any] = []
+        if dataset_id:
+            sql += " AND dataset_id=?"
+            params.append(self._normalise_dataset_id(dataset_id) or dataset_id)
+        if language:
+            sql += " AND language=?"
+            params.append(language)
+        if concept:
+            sql += " AND concept=?"
+            params.append(concept)
+        sql += " ORDER BY record_id LIMIT ? OFFSET ?"
+        params.extend([batch_size, offset])
+        return [self._row_to_record(r) for r in self.storage.query(sql, params)]
+
+    def iterate_batches(
+        self, *, batch_size: int = 200, **filters: Any
+    ) -> Iterator[list[FabricRecord]]:
+        offset = 0
+        while True:
+            batch = self.get_batch(batch_size=batch_size, offset=offset, **filters)
+            if not batch:
+                break
+            yield batch
+            offset += len(batch)
+            if len(batch) < batch_size:
+                break
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        language: str | None = None,
+        dataset_id: str | None = None,
+        concept: str | None = None,
+    ) -> list[FabricRecord]:
+        if not query or limit <= 0:
+            return []
+        terms = [
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9_+#.-]+", query)
+            if len(token) >= 2
+        ]
+        if not terms:
+            return []
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        fields = (
+            "question", "answer", "explanation", "concept", "topic",
+            "tags_json", "framework", "language", "search_text",
+        )
+        for term in terms:
+            escaped = (
+                term.replace("!", "!!")
+                .replace("%", "!%")
+                .replace("_", "!_")
+            )
+            like = f"%{escaped}%"
+            clauses.append("(" + " OR ".join(
+                f"LOWER({field}) LIKE ? ESCAPE '!'"
+                for field in fields
+            ) + ")")
+            params.extend([like] * len(fields))
+
+        sql = "SELECT * FROM fabric_records WHERE (" + " OR ".join(clauses) + ")"
+        if dataset_id:
+            sql += " AND dataset_id=?"
+            params.append(self._normalise_dataset_id(dataset_id) or dataset_id)
+        if language:
+            sql += " AND language=?"
+            params.append(language)
+        if concept:
+            sql += " AND concept=?"
+            params.append(concept)
+        sql += " ORDER BY record_id LIMIT ?"
+        params.append(limit)
+        return [self._row_to_record(r) for r in self.storage.query(sql, params)]
+
+    def dataset_catalog(self) -> list[dict[str, Any]]:
+        return self.storage.query(
+            "SELECT * FROM fabric_datasets ORDER BY dataset_id"
+        )
+
+    def coverage_audit(self) -> dict[str, Any]:
+        present_rows = self.storage.query(
+            "SELECT dataset_id, COUNT(*) AS c FROM fabric_records "
+            "GROUP BY dataset_id ORDER BY dataset_id"
+        )
+        present = {row["dataset_id"]: int(row["c"]) for row in present_rows}
+        missing = sorted(set(_EXPECTED_DATASETS) - set(present))
+        return {
+            "expected": list(_EXPECTED_DATASETS),
+            "present": sorted(present),
+            "missing": missing,
+            "dataset_count": len(present),
+            "complete": not missing,
+            "record_counts": present,
+        }
+
+    def stats(self) -> dict[str, Any]:
+        total = self.storage.query_one(
+            "SELECT COUNT(*) AS c FROM fabric_records"
+        )
+        datasets = self.storage.query(
+            "SELECT dataset_id, COUNT(*) AS c FROM fabric_records "
+            "GROUP BY dataset_id ORDER BY dataset_id"
+        )
+        langs = self.storage.query(
+            "SELECT language, COUNT(*) AS c FROM fabric_records "
+            "WHERE language != '' GROUP BY language ORDER BY c DESC"
+        )
+        progress = self.storage.query(
+            "SELECT dataset_id, total_lines, valid_records, loaded, errors, completed "
+            "FROM fabric_progress ORDER BY dataset_id"
+        )
+        sources = self.storage.query(
+            "SELECT source_file, source_format, documents_parsed, records_seen, "
+            "inserted, duplicate_records, conflicts, warnings, errors, completed "
+            "FROM fabric_sources ORDER BY source_file"
+        )
+        return {
+            "total_records": int(total["c"]) if total else 0,
+            "datasets": {r["dataset_id"]: int(r["c"]) for r in datasets},
+            "languages": {r["language"]: int(r["c"]) for r in langs},
+            "dataset_count": len(datasets),
+            "dataset_catalog": self.dataset_catalog(),
+            "coverage": self.coverage_audit(),
+            "progress": progress,
+            "sources": sources,
+        }
+
+    def _count_dataset(self, dataset_id: str) -> int:
+        row = self.storage.query_one(
+            "SELECT COUNT(*) AS c FROM fabric_records WHERE dataset_id=?",
+            (dataset_id,),
+        )
+        return int(row["c"]) if row else 0
+
+    @staticmethod
+    def _hash_id(dataset_id: str, line_num: int, content: str) -> str:
+        digest = hashlib.sha256(
+            f"{dataset_id}:{line_num}:{content}".encode("utf-8")
+        ).hexdigest()[:16]
+        return f"{dataset_id}-{digest}"
+
+    @staticmethod
+    def _row_to_record(row: dict[str, Any]) -> FabricRecord:
+        try:
+            tags = json.loads(row.get("tags_json") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            tags = []
+        try:
+            raw = json.loads(row.get("raw_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            raw = {}
+        return FabricRecord(
+            record_id=row["record_id"],
+            dataset_id=row["dataset_id"],
+            topic=row.get("topic") or "",
+            concept=row.get("concept") or "",
+            knowledge_type=row.get("knowledge_type") or "",
+            question=row.get("question") or "",
+            answer=row.get("answer") or "",
+            explanation=row.get("explanation") or "",
+            language=row.get("language") or "",
+            framework=row.get("framework") or "",
+            version=row.get("version") or "",
+            tags=tags if isinstance(tags, list) else [],
+            source_file=row.get("source_file") or "",
+            source_line=row.get("source_line"),
+            content_hash=row.get("content_hash") or "",
+            raw=raw if isinstance(raw, dict) else {},
+        )
+
         )
         match = field_pattern.search(line)
         if not match:
