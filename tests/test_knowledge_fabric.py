@@ -71,3 +71,70 @@ def test_rag_reranking_sees_candidates_beyond_fixed_window(tmp_path: Path):
         response = brain.ask("FastAPI unique-target endpoint", top_k=1)
         assert response.knowledge
         assert response.knowledge[0].record_id == "D01-999"
+
+
+def test_execution_failure_debug_repair_retest_chain(tmp_path: Path):
+    from sebrain.c18 import TestExecutionEngine, TestOutcome
+    from sebrain.c19 import DebugStatus, Debugger
+    from sebrain.c20 import (
+        EvaluationVerdict,
+        FilePatch,
+        RepairCandidate,
+        RepairEngine,
+        RepairKind,
+    )
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    target = tests / "test_bug.py"
+    target.write_text(
+        "def test_expected():\n"
+        "    assert 1 == 2\n",
+        encoding="utf-8",
+    )
+
+    executor = TestExecutionEngine()
+    baseline_run = executor.run_full(root=tmp_path, project_id="integration")
+    failed = next(
+        result for result in baseline_run.results
+        if result.nodeid == "tests/test_bug.py::test_expected"
+    )
+    assert failed.outcome is TestOutcome.FAILED
+
+    debug_report = Debugger(root=tmp_path).analyze_test_result(
+        failed, project_id="integration"
+    )
+    assert debug_report.status in {DebugStatus.DIAGNOSED, DebugStatus.PARTIAL}
+    assert debug_report.input_ref == failed.nodeid
+
+    candidate = RepairCandidate(
+        kind=RepairKind.USER_SUPPLIED,
+        patches=[
+            FilePatch(
+                path="tests/test_bug.py",
+                old_text="assert 1 == 2",
+                new_text="assert 1 == 1",
+                rationale="Restore the failing assertion.",
+            )
+        ],
+        rationale="Evidence-backed test repair.",
+    )
+    repair = RepairEngine().run(
+        report=debug_report,
+        root=tmp_path,
+        project_id="integration",
+        target_nodeid=failed.nodeid,
+        user_candidates=[candidate],
+    )
+
+    assert repair.baseline is not None
+    assert repair.baseline.outcome_of(failed.nodeid) == "failed"
+    assert repair.accepted_id == candidate.id
+    evaluation = next(
+        item for item in repair.evaluations
+        if item.candidate_id == candidate.id
+    )
+    assert evaluation.verdict is EvaluationVerdict.ACCEPTED
+    assert evaluation.target_status_before == "failed"
+    assert evaluation.target_status_after == "passed"
+    assert evaluation.regression_count == 0
