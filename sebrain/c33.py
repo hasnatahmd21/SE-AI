@@ -434,8 +434,11 @@ class Harvester:
                 scope_type=MemoryScope.PROJECT, scope_id=project_id,
             )
         except Exception as exc:
-            log.warning("c33.memory_harvest_error", error=str(exc))
-            return events
+            # Harvest failures must be visible; returning an empty set would
+            # falsely look like "no failures" and contaminate recurrence analysis.
+            raise ValidationError(
+                f"failure-memory harvest failed: {type(exc).__name__}: {exc}"
+            ) from exc
         for e in entries:
             content = e.content or {}
             what = str(content.get("what") or "")
@@ -633,8 +636,10 @@ class Clusterer:
                     break
             if not placed:
                 clusters.append(FailureCluster(events=[e]))
-                if len(clusters) >= self.max_clusters:
-                    break
+                if len(clusters) > self.max_clusters:
+                    raise ValidationError(
+                        f"cluster count exceeds max_clusters={self.max_clusters}"
+                    )
         for c in clusters:
             c.recount()
             c.signature = _canonical_signature(c.events)
@@ -807,7 +812,12 @@ class FailureLab:
                 continue
             seen.add(e.id)
             deduped.append(e)
-        return deduped[: self.max_events]
+        if len(deduped) > self.max_events:
+            raise ValidationError(
+                f"event count {len(deduped)} exceeds max_events={self.max_events}; "
+                "narrow the input sources explicitly"
+            )
+        return deduped
 
     # ---- analyze ----
     def analyze(
@@ -863,8 +873,10 @@ class FailureLab:
             patterns.append(p)
             l = self.detector.build_lesson(p, c)
             lessons.append(l)
-            if len(patterns) >= self.max_patterns:
-                break
+            if len(patterns) > self.max_patterns:
+                raise ValidationError(
+                    f"pattern count exceeds max_patterns={self.max_patterns}"
+                )
         # Sort patterns: kind (chronic > recurring > single), then
         # occurrences desc, then signature
         order = {PatternKind.CHRONIC: 0, PatternKind.RECURRING: 1,
@@ -981,10 +993,7 @@ class FailureRepository:
                 tags=["failure-pattern", p.kind.value],
                 provenance=report.provenance,
             )
-            try:
-                self.ontology.link(RelationKind.CONTAINS, ent.id, fe.id)
-            except ValidationError:
-                pass
+            self.ontology.link(RelationKind.CONTAINS, ent.id, fe.id)
         return ent.id
 
     def load(self, report_id: str, *, project_id: str) -> dict[str, Any] | None:
