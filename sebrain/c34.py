@@ -782,10 +782,11 @@ class KnowledgeFabricLoader:
                         i = line_end
                         continue
 
-                # A brace in prose/code is not necessarily a JSON document.
-                # Advance one character so a later real JSON value can still
-                # be discovered. Limit diagnostics to avoid huge reports.
-                i = start + 1
+                # The repair attempt failed for this physical line.
+                # Do not scan nested braces inside the malformed value as if
+                # they were independent top-level records; that can fabricate
+                # records from fields such as test_input or code examples.
+                i = line_end
                 continue
 
             json_values += 1
