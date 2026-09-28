@@ -813,24 +813,12 @@ class KnowledgeFabricLoader:
                         i = line_end
                         continue
 
-                # Malformed JSON that is clearly not a record is treated as
-                # export metadata/prose. A malformed candidate containing a
-                # record identity must remain an error because dropping it
-                # would hide a dataset record failure.
-                line_no = text.count("\n", 0, start) + 1
-                if '"record_id"' in candidate_line or '"id"' in candidate_line:
-                    errors.append({
-                        "file": path.name,
-                        "line": line_no,
-                        "error": "invalid JSON value",
-                        "detail": str(getattr(exc, "msg", "") or "JSON decode failed"),
-                    })
-                else:
-                    warnings.append({
-                        "file": path.name,
-                        "line": line_no,
-                        "warning": "ignored malformed non-record JSON metadata region",
-                    })
+                errors.append({
+                    "file": path.name,
+                    "line": text.count("\n", 0, start) + 1,
+                    "error": "invalid JSON value",
+                    "detail": str(getattr(exc, "msg", "") or "JSON decode failed"),
+                })
                 # Do not scan nested braces inside the malformed value as if
                 # they were independent top-level records; that can fabricate
                 # records from fields such as test_input or code examples.
