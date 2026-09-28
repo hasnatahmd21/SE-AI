@@ -1047,7 +1047,7 @@ class CrossProjectKnowledgeStore:
             # Copy to project (may collide)
             existing = self.storage.query_one(
                 "SELECT id FROM c31_knowledge WHERE scope='project' AND "
-                "owner_project_id=? AND key=?;",
+                "owner_project_id=? AND key=? AND status='active';",
                 (target_project_id, key),
             )
             if existing is None:
