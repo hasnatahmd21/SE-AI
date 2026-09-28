@@ -1356,6 +1356,18 @@ class KnowledgeFabricLoader:
         # as SQL/Python snippets containing the literal token " + ". Escaping
         # only that exact token is deliberately narrow; the full candidate
         # must still parse as a record before it can be accepted.
+        quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
+        if quote_repaired is not None:
+            candidates.append(quote_repaired)
+
+            if ',"]' in quote_repaired:
+                candidates.append(quote_repaired.replace(',"]', ']'))
+            if ",}" in quote_repaired:
+                candidates.append(quote_repaired.replace(",}", "}"))
+
+        # Keep the broader concatenation candidate as a fallback only. The
+        # context-aware quote repair above must win whenever it can preserve
+        # the following JSON field boundary.
         expression_repaired = (
             line.replace('" +', '\\" +')
             .replace('+ "', '+ \\"')
@@ -1370,14 +1382,6 @@ class KnowledgeFabricLoader:
             ):
                 candidates.append(expression_repaired)
 
-        quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
-        if quote_repaired is not None:
-            candidates.append(quote_repaired)
-
-            if ',"]' in quote_repaired:
-                candidates.append(quote_repaired.replace(',"]', ']'))
-            if ",}" in quote_repaired:
-                candidates.append(quote_repaired.replace(",}", "}"))
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
