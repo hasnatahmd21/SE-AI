@@ -1029,6 +1029,29 @@ class KnowledgeFabricLoader:
             ):
                 candidates.append(candidate)
 
+        # Some architecture trade-off exports omit the closing brace of
+        # option_b/option_a before the next top-level field. Repair only this
+        # explicit object-boundary shape and accept it only after full parsing.
+        for option_key in ("option_a", "option_b"):
+            option_marker = '"' + option_key + '":{'
+            next_field_marker = '","implementation_relevance"'
+            if option_marker in line and next_field_marker in line:
+                broken_boundary = '"' + next_field_marker[2:]
+                if '},"implementation_relevance"' not in line:
+                    candidate = line.replace(
+                        next_field_marker,
+                        '"},"implementation_relevance"',
+                        1,
+                    )
+                    try:
+                        payload = json.loads(candidate)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if isinstance(payload, dict) and (
+                        payload.get("record_id") or payload.get("id")
+                    ):
+                        candidates.append(candidate)
+
         # Code-bearing fields can contain many nested string literals. Try
         # each plausible JSON field boundary rather than assuming the first
         # comma-delimited quote is structural; accept only a candidate that
