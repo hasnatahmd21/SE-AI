@@ -329,6 +329,8 @@ class PerfReport:
     profile: PerfProfile | None = None
     coverage: CoverageNote = field(default_factory=CoverageNote)
     files_scanned: int = 0
+    files_skipped: int = 0
+    scan_complete: bool = True
     rationale: str = ""
     provenance: Provenance = field(default_factory=Provenance)
     created_at: str = field(default_factory=now_iso)
@@ -361,6 +363,8 @@ class PerfReport:
             "profile": self.profile.to_dict() if self.profile else None,
             "coverage": self.coverage.to_dict(),
             "files_scanned": self.files_scanned,
+            "files_skipped": self.files_skipped,
+            "scan_complete": self.scan_complete,
             "counts": {s.value: self.count(s) for s in Severity},
             "highest_severity": (self.highest_severity().value
                                  if self.highest_severity() else None),
@@ -966,6 +970,7 @@ class Benchmark:
             raise ValidationError("script too large (>500KB)")
 
         samples: list[float] = []
+        failed_iterations: list[str] = []
         user_samples: list[float] = []
         sys_samples: list[float] = []
         peak_rss = 0
@@ -991,16 +996,22 @@ class Benchmark:
                 user_samples.append(u)
                 sys_samples.append(s)
                 peak_rss = max(peak_rss, rss)
+            else:
+                failed_iterations.append(
+                    f"iteration={i}, exit_code={getattr(sr, 'exit_code', -1)}"
+                )
 
         if not samples:
             return (PerfProfile(
                 source=MetricSource.MEASURED,
-                notes=["no successful iterations — check script/stderr"],
+                notes=["no successful iterations — check script/stderr", *failed_iterations],
             ), [])
 
         profile, metrics = aggregate_samples(
             samples, unit="seconds", context="benchmark",
         )
+        if failed_iterations:
+            profile.notes.extend([f"failed: {x}" for x in failed_iterations])
         if user_samples:
             profile.cpu_user_seconds = statistics.fmean(user_samples)
             metrics.append(Metric(
@@ -1062,6 +1073,8 @@ class PerfAnalyzer:
             raise ValidationError(f"root not a directory: {root_p}")
         report = PerfReport(root=str(root_p), project_id=project_id)
 
+        skipped_reasons: list[str] = []
+        max_files_reached = False
         for dirpath, dirnames, filenames in __import__("os").walk(root_p):
             dirnames[:] = sorted(
                 d for d in dirnames
@@ -1076,10 +1089,14 @@ class PerfAnalyzer:
                 except OSError:
                     continue
                 if len(raw) > self.max_file_bytes:
+                    report.files_skipped += 1
+                    skipped_reasons.append(f"{p.relative_to(root_p)}: exceeds max_file_bytes")
                     continue
                 try:
                     src = raw.decode("utf-8")
                 except UnicodeDecodeError:
+                    report.files_skipped += 1
+                    skipped_reasons.append(f"{p.relative_to(root_p)}: invalid UTF-8")
                     continue
                 try:
                     rel = str(p.relative_to(root_p)).replace("\\", "/")
@@ -1090,8 +1107,10 @@ class PerfAnalyzer:
                 report.complexity.extend(cs)
                 report.files_scanned += 1
                 if report.files_scanned >= self.max_files:
+                    max_files_reached = True
                     break
             if report.files_scanned >= self.max_files:
+                max_files_reached = True
                 break
 
         # ---- measured: sandbox ----
@@ -1134,7 +1153,9 @@ class PerfAnalyzer:
             measured_sources=sorted(set(sources_measured)),
             estimated_sources=sorted(set(sources_est)),
             inferred_sources=sorted(set(sources_inf)),
-            not_covered=[
+            not_covered=skipped_reasons + ([
+                "repository scan truncated at max_files",
+            ] if max_files_reached else []) + [
                 "per-line CPU attribution (no profiler injected)",
                 "memory allocations attribution (no tracemalloc)",
                 "lock contention / GIL analysis",
@@ -1142,7 +1163,9 @@ class PerfAnalyzer:
                 "cold-start vs steady-state separation",
             ],
             statement=(
-                "MEASURED metrics come from actual runtime observations "
+                ("Repository scan was truncated at max_files; results are partial. " if max_files_reached else "")
+                + (f"{report.files_skipped} files were skipped and are listed in not_covered. " if report.files_skipped else "")
+                + "MEASURED metrics come from actual runtime observations "
                 "(sandbox/test run/benchmark). ESTIMATED findings come from "
                 "AST heuristics and MAY be false positives. INFERRED findings "
                 "rely on indirect signals and should be reviewed manually. "
@@ -1151,11 +1174,13 @@ class PerfAnalyzer:
             ),
         )
         report.rationale = (
-            f"files={report.files_scanned} findings={len(report.findings)} "
+            f"files={report.files_scanned} skipped={report.files_skipped} "
+            f"scan_complete={not max_files_reached} findings={len(report.findings)} "
             f"complexity_entries={len(report.complexity)} "
             f"metrics={len(report.metrics)} "
             f"highest={report.highest_severity().value if report.highest_severity() else 'none'}"
         )
+        report.scan_complete = not max_files_reached
         report.provenance = Provenance(
             source="perf_analyzer", source_type=ProvenanceType.SYSTEM,
             confidence=Confidence.HIGH,
@@ -1262,10 +1287,7 @@ class PerfRepository:
                 tags=["perf-metric", m.kind.value],
                 provenance=report.provenance,
             )
-            try:
-                self.ontology.link(RelationKind.CONTAINS, root.id, ee.id)
-            except ValidationError:
-                pass
+            self.ontology.link(RelationKind.CONTAINS, root.id, ee.id)
         return root.id
 
     def load(self, report_id: str, *, project_id: str) -> dict[str, Any] | None:
