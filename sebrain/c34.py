@@ -366,23 +366,27 @@ class KnowledgeFabricLoader:
                 seen_ids.add(record_id)
                 valid += 1
 
-                status = self._insert_record(
-                    dataset_id=dataset_id,
-                    record_id=record_id,
-                    raw=raw,
-                    source_file=path.name,
-                    source_line=source_line,
-                    source_line_text=source_line_text or _canonical_json(raw),
-                )
-                self._audit_occurrence(
-                    record_id,
-                    dataset_id,
-                    path.name,
-                    source_line,
-                    status,
-                    self._content_hash(raw),
-                    raw,
-                )
+                # Record insertion, occurrence audit, and catalog metadata
+                # form one atomic unit. A failure in any part must not leave
+                # an apparently loaded record without its audit trail.
+                with self.storage.transaction():
+                    status = self._insert_record(
+                        dataset_id=dataset_id,
+                        record_id=record_id,
+                        raw=raw,
+                        source_file=path.name,
+                        source_line=source_line,
+                        source_line_text=source_line_text or _canonical_json(raw),
+                    )
+                    self._audit_occurrence(
+                        record_id,
+                        dataset_id,
+                        path.name,
+                        source_line,
+                        status,
+                        self._content_hash(raw),
+                        raw,
+                    )
 
                 if status == "inserted":
                     inserted += 1
@@ -409,13 +413,14 @@ class KnowledgeFabricLoader:
                     counts["conflicts"] += 1
 
                 dataset_contexts.setdefault(dataset_id, (context, manifest))
-                self._upsert_dataset_catalog(
-                    dataset_id,
-                    raw,
-                    context,
-                    manifest,
-                    path.name,
-                )
+                with self.storage.transaction():
+                    self._upsert_dataset_catalog(
+                        dataset_id,
+                        raw,
+                        context,
+                        manifest,
+                        path.name,
+                    )
 
         error_count = len(errors)
         self.storage.execute(
