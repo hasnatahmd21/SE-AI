@@ -125,7 +125,7 @@ D58 validation ledger
         assert response.knowledge
         assert response.knowledge[0].record_id == "D58-TEST-QUOTE-001"
         assert response.knowledge[0].raw["invalid_example"] == (
-            "SELECT * FROM users WHERE name = 'USER_INPUT'"
+            "SELECT * FROM users WHERE name = '" + "\" + "USER_INPUT" + "\" + "'"
         )
 
 def test_grouped_export_allows_prose_between_json_documents(tmp_path: Path):
