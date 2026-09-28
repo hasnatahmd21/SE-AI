@@ -544,7 +544,7 @@ class KnowledgeFabricLoader:
                 chars.append('"')
                 in_string = False
             else:
-                chars.append('\"')
+                chars.append('\\"')
                 changed = True
 
         if not changed or in_string:
