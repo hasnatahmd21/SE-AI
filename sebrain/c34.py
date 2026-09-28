@@ -648,6 +648,12 @@ class KnowledgeFabricLoader:
         if completed is not None:
             candidates.append(completed)
 
+        terminal_string_repaired = (
+            KnowledgeFabricLoader._repair_record_string_with_embedded_quotes(line)
+        )
+        if terminal_string_repaired is not None:
+            candidates.append(terminal_string_repaired)
+
         quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(line)
         if quote_repaired is not None:
             candidates.append(quote_repaired)
