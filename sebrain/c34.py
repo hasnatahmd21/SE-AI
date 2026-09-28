@@ -1078,6 +1078,45 @@ class KnowledgeFabricLoader:
                         ):
                             candidates.append(plus_candidate)
 
+        # Handle compact concatenation forms such as '+user_input+' as
+        # well as spaced variants. The candidate is limited to the containing
+        # field and accepted only when complete JSON validation succeeds.
+        compact_concat_tokens = ('"+', '+"', "'+", "+'")
+        if any(token in line for token in compact_concat_tokens):
+            token_index = min(
+                (
+                    line.find(token)
+                    for token in compact_concat_tokens
+                    if token in line
+                ),
+                default=-1,
+            )
+            if token_index >= 0:
+                concat_field_start = line.rfind(field_marker, 0, token_index)
+                if concat_field_start >= 0:
+                    concat_value_start = concat_field_start + len(field_marker)
+                    concat_field_end = line.find('","', token_index)
+                    if concat_field_end < 0:
+                        concat_field_end = line.rfind('"}')
+                    if concat_field_end > concat_value_start:
+                        concat_value = line[
+                            concat_value_start:concat_field_end
+                        ]
+                        if '"' in concat_value:
+                            concat_candidate = (
+                                line[:concat_value_start]
+                                + concat_value.replace('"', '\\\"')
+                                + line[concat_field_end:]
+                            )
+                            try:
+                                payload = json.loads(concat_candidate)
+                            except json.JSONDecodeError:
+                                payload = None
+                            if isinstance(payload, dict) and (
+                                payload.get("record_id") or payload.get("id")
+                            ):
+                                candidates.append(concat_candidate)
+
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
             value_start = field_start + len(field_marker)
