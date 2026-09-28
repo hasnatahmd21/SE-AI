@@ -495,6 +495,12 @@ class KnowledgeFabricLoader:
         warnings: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
         lines = text.splitlines(keepends=True)
+        line_starts: list[int] = []
+        offset = 0
+        for line in lines:
+            line_starts.append(offset)
+            offset += len(line)
+
         cursor = 0
         line_index = 0
         skipped_lines = 0
@@ -527,9 +533,16 @@ class KnowledgeFabricLoader:
             if document is not None:
                 documents.append(document)
 
-            consumed_newlines = text.count("\n", 0, end)
-            line_index = consumed_newlines + 1
-            cursor = sum(len(item) for item in lines[:line_index])
+            # raw_decode() returns the character offset immediately after the
+            # JSON value. Advance to the next physical line without skipping
+            # the line following a single-line JSON document. This matters for
+            # JSONL sources where every record is its own document.
+            import bisect
+            next_line = bisect.bisect_left(line_starts, end)
+            if next_line <= line_index:
+                next_line = line_index + 1
+            line_index = next_line
+            cursor = line_starts[line_index] if line_index < len(line_starts) else len(text)
 
         if skipped_lines:
             warnings.append({
