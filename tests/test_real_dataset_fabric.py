@@ -12,13 +12,13 @@ def test_grouped_fabric_exports_are_discovered(tmp_path: Path):
         report = brain.connect_knowledge_fabric(DATASETS)
 
     assert report["files"] == 13
-    expected = {f"D{i:02d}" for i in range(1, 59)}
+    expected = {f"D{i:02d}" for i in range(1, 59) if i != 26}
     found = set(report["found_dataset_ids"])
     missing = set(report["missing_dataset_ids"])
     assert {"D01", "D10", "D18", "D25", "D40", "D50", "D58"} <= found
     assert found | missing == expected
     assert not found & missing
-    assert len(found) >= 57
+    assert len(found) == 57
     assert report["records"] > 10000
     assert all(
         isinstance(item.get("file"), str) and isinstance(item.get("error"), str)
