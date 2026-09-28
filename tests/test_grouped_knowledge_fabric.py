@@ -154,6 +154,33 @@ D26 final-range note.
 
 
 
+def test_json_quote_repair_preserves_embedded_array_and_function_quotes():
+    lines = [
+        (
+            '{"record_id":"D34-QUOTE-001","dataset_id":"D34",'
+            '"corrected_code":"validate_non_null(orders, "order_id")\\n'
+            'validate_allowed_values(orders, "status", ["created", "paid"])"'
+            '}'
+        ),
+        (
+            '{"record_id":"D35-QUOTE-001","dataset_id":"D35",'
+            '"corrected_code":"raise ValueError("partition_count must be positive")"'
+            '}'
+        ),
+    ]
+    expected = [
+        'validate_non_null(orders, "order_id")\\n'
+        'validate_allowed_values(orders, "status", ["created", "paid"])',
+        'raise ValueError("partition_count must be positive")',
+    ]
+
+    for line, expected_code in zip(lines, expected):
+        repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+        assert repaired is not None
+        payload = json.loads(repaired)
+        assert payload["corrected_code"] == expected_code
+
+
 def test_json_quote_repair_helper_recovers_embedded_code_quotes():
     line = (
         '{"record_id":"D58-HELPER-001","dataset_id":"D58",'
