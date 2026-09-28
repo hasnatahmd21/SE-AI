@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="exit non-zero when D01-D58 coverage is incomplete or source errors exist",
+        help="exit non-zero when intended dataset coverage is incomplete or source errors exist",
     )
     args = parser.parse_args()
 
