@@ -812,9 +812,6 @@ class KnowledgeFabricLoader:
             return {"context": {}, "manifest": {}, "records": records}
 
         return None
-            return {"context": {}, "manifest": {}, "records": records}
-
-        return None
 
     @staticmethod
     def _looks_like_record(payload: dict[str, Any]) -> bool:
