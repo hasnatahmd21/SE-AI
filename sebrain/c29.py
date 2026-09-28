@@ -920,7 +920,9 @@ class GovernanceEngine:
         """Explicitly roll a scope back. Never silent."""
         if self.memory is None:
             raise ValidationError("memory not attached for rollback")
-        current = self._active_version(scope)
+        current = self._active_version(
+            scope, project_id=project_id, scope_key_prefix=scope_key_prefix
+        )
         if current is None:
             raise ValidationError(
                 f"no active promotion for scope '{scope}'"
@@ -934,9 +936,8 @@ class GovernanceEngine:
         # Find both the current and target versions. Rollback must leave a
         # concrete active version; merely archiving the current entry would
         # otherwise make _active_version() return None.
-        entries = self.memory.find(
-            kind=MemoryKind.PROJECT, status=None,
-            key_like=f"{scope_key_prefix}:{scope}:",
+        entries = self._entries_for_scope(
+            scope, project_id=project_id, scope_key_prefix=scope_key_prefix
         )
         current_entries = [
             e for e in entries if int(e.content.get("version", 0)) == current
