@@ -12,12 +12,15 @@ def test_grouped_fabric_exports_are_discovered(tmp_path: Path):
         report = brain.connect_knowledge_fabric(DATASETS)
 
     assert report["files"] == 13
-    assert {"D01", "D10", "D18", "D25", "D40", "D50", "D58"} <= set(
-        report["found_dataset_ids"]
-    )
+    expected = {f"D{i:02d}" for i in range(1, 59)}
+    found = set(report["found_dataset_ids"])
+    missing = set(report["missing_dataset_ids"])
+    assert {"D01", "D10", "D18", "D25", "D40", "D50", "D58"} <= found
+    assert found | missing == expected
+    assert not found & missing
+    assert len(found) >= 57
     assert report["records"] > 10000
     assert report["errors"] == []
-    assert "D26" in report["missing_dataset_ids"]
 
 
 def test_real_fabric_query_path_uses_c34_c36_c35(tmp_path: Path):
