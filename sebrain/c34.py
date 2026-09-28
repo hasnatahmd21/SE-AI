@@ -353,15 +353,16 @@ class KnowledgeFabricLoader:
 
                 if record_id in seen_ids:
                     duplicates += 1
-                    self._audit_occurrence(
-                        record_id,
-                        dataset_id,
-                        path.name,
-                        source_line,
-                        "duplicate_in_source",
-                        self._content_hash(raw),
-                        raw,
-                    )
+                    with self.storage.transaction():
+                        self._audit_occurrence(
+                            record_id,
+                            dataset_id,
+                            path.name,
+                            source_line,
+                            "duplicate_in_source",
+                            self._content_hash(raw),
+                            raw,
+                        )
                     continue
                 seen_ids.add(record_id)
                 valid += 1
