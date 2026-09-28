@@ -1136,8 +1136,23 @@ class PlanCheck(_BaseCheck):
                             rationale="plan has integrity issues",
                         )],
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Validation failures are evidence that the plan cannot be
+                # trusted, not a reason to silently accept it.
+                return self._mk(
+                    outcome=CheckOutcome.NEEDS_ATTENTION,
+                    score=0.2,
+                    rationale=(
+                        f"plan validation raised: "
+                        f"{type(exc).__name__}: {exc}"
+                    ),
+                    signals=signals,
+                    redirections=[Redirection(
+                        kind=RedirectionKind.REVISE_PLAN,
+                        target_phase="C08",
+                        rationale="plan validation could not be completed",
+                    )],
+                )
         return self._mk(
             outcome=CheckOutcome.PASS, score=0.85,
             rationale=(
