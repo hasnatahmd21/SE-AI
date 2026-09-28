@@ -6,7 +6,7 @@ from sebrain.c26 import (
 
 
 def test_episode_bundle_excludes_unrelated_memory_signals():
-    extractor = ExperienceExtractor()
+    extractor = ExperienceExtractor(memory=object())
 
     extractor.harvester.from_memory = lambda memory, project_id: [
         Signal(
