@@ -869,23 +869,69 @@ class GovernanceEngine:
             return report
 
         # ---- Stage 8: promotion ----
-        if self._promotion_count(
-            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
-        ) >= self.max_changes_per_scope:
-            report.final_status = PromotionStatus.HELD
-            report.rationale = (
-                f"promotion cap reached for scope '{change.scope}'"
+        # Version allocation and persistence must share one transaction so
+        # two concurrent submissions cannot both allocate the same version.
+        if self.memory is not None:
+            tx = self.memory.storage.transaction()
+        else:
+            tx = None
+        if tx is None:
+            cap_reached = self._promotion_count(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
+            ) >= self.max_changes_per_scope
+            if cap_reached:
+                report.final_status = PromotionStatus.HELD
+                report.rationale = (
+                    f"promotion cap reached for scope '{change.scope}'"
+                )
+                self._record_change(report, project_id=project_id,
+                                     scope_key_prefix=scope_key_prefix)
+                return report
+            next_version = self._next_version(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
             )
-            self._record_change(report, project_id=project_id,
-                                 scope_key_prefix=scope_key_prefix)
+            prev_active = self._active_version(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
+            )
+            self._finalize_promotion(
+                report, change, approved, next_version, prev_active,
+                project_id=project_id, scope_key_prefix=scope_key_prefix,
+            )
             return report
+        with tx:
+            if self._promotion_count(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
+            ) >= self.max_changes_per_scope:
+                report.final_status = PromotionStatus.HELD
+                report.rationale = (
+                    f"promotion cap reached for scope '{change.scope}'"
+                )
+                self._record_change(report, project_id=project_id,
+                                     scope_key_prefix=scope_key_prefix)
+                return report
+            next_version = self._next_version(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
+            )
+            prev_active = self._active_version(
+                change.scope, project_id=project_id,
+                scope_key_prefix=scope_key_prefix
+            )
+            self._finalize_promotion(
+                report, change, approved, next_version, prev_active,
+                project_id=project_id, scope_key_prefix=scope_key_prefix,
+            )
+        return report
 
-        next_version = self._next_version(
-            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
-        )
-        prev_active = self._active_version(
-            change.scope, project_id=project_id, scope_key_prefix=scope_key_prefix
-        )
+    def _finalize_promotion(
+        self, report: GovernanceReport, change: CandidateChange,
+        approved: str, next_version: int, prev_active: int | None,
+        *, project_id: str, scope_key_prefix: str,
+    ) -> None:
         report.promotion_version = next_version
         report.final_status = PromotionStatus.PROMOTED
         report.stages.append(StageResult(
@@ -908,7 +954,6 @@ class GovernanceEngine:
         )
         self._record_change(report, project_id=project_id,
                              scope_key_prefix=scope_key_prefix)
-        return report
 
     # ---- rollback ----
     def rollback(
