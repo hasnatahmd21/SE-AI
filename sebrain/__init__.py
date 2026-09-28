@@ -163,15 +163,38 @@ class SEBrain:
         self.bridge = BrainDatasetBridge(brain=self.app, loader=self.fabric)
         return report
 
-    def ask(self, query: str, *, top_k: int = 5) -> BrainResponse:
+    def ask(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        language: str | None = None,
+        dataset_id: str | None = None,
+        concept: str | None = None,
+    ) -> BrainResponse:
+        """Ask the connected Brain using the C34 -> C36 -> C35 pipeline."""
         if self.bridge is None:
-            raise NotInitializedError("Knowledge Fabric is not connected — call connect_knowledge_fabric() first")
-        return self.bridge.answer(query, top_k=top_k)
+            raise NotInitializedError(
+                "Knowledge Fabric is not connected — call connect_knowledge_fabric() first"
+            )
+        return self.bridge.answer(
+            query,
+            top_k=top_k,
+            language=language,
+            dataset_id=dataset_id,
+            concept=concept,
+        )
 
     def fabric_stats(self) -> dict[str, Any]:
         if self.fabric is None:
             raise NotInitializedError("Knowledge Fabric is not connected")
         return self.fabric.stats()
+
+    def knowledge_catalog(self) -> list[dict[str, Any]]:
+        """Return the persistent D01-D58 catalog populated by C34."""
+        if self.fabric is None:
+            raise NotInitializedError("Knowledge Fabric is not connected")
+        return self.fabric.dataset_catalog()
 
     # ---- dataset ingestion --------------------------------------------
     def ingest_dataset(
