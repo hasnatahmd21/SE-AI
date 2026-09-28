@@ -59,3 +59,14 @@ def test_json_quote_repair_handles_database_security_sql_examples():
     assert payload["invalid_example"] == (
         "SELECT * FROM users WHERE username = '\" + \"USER_INPUT\" + \"'"
     )
+
+
+def test_real_d16_malformed_quote_examples_load_without_parse_errors(tmp_path: Path):
+    source = Path("datasets/D16 - D17")
+    assert source.is_file()
+    target = tmp_path / source.name
+    target.write_bytes(source.read_bytes())
+    loader = KnowledgeFabricLoader(SQLiteStorage(":memory:"), tmp_path)
+    result = loader.load_dataset_file(target)
+    assert result["errors"] == []
+    assert result["inserted"] > 0
