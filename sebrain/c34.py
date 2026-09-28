@@ -584,6 +584,34 @@ class KnowledgeFabricLoader:
             try:
                 payload, end = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
+                # Before discarding a malformed line, apply the loader's
+                # deliberately narrow quote-repair rule to record objects.
+                # This preserves the ability to recover generated code/prose
+                # containing raw double quotes without performing broad or
+                # unsafe structural repair.
+                line_end = text.find("\n", start)
+                if line_end < 0:
+                    line_end = len(text)
+                candidate_line = text[start:line_end]
+                repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(
+                    candidate_line
+                )
+                if repaired is not None:
+                    try:
+                        payload = json.loads(repaired)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if payload is not None:
+                        json_values += 1
+                        line_no = text.count("\n", 0, start) + 1
+                        document = KnowledgeFabricLoader._document_from_payload(
+                            payload, line_no
+                        )
+                        if document is not None:
+                            documents.append(document)
+                        i = line_end
+                        continue
+
                 # A brace in prose/code is not necessarily a JSON document.
                 # Advance one character so a later real JSON value can still
                 # be discovered. Limit diagnostics to avoid huge reports.
