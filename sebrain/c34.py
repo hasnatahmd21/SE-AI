@@ -1,13 +1,12 @@
 """C34 — Knowledge Fabric Loader.
 
 Loads the repository's D01-D58 Knowledge Fabric into the Brain's shared
-SQLite storage. Sources may be canonical JSONL files or the grouped,
-extensionless dataset files used by the current repository export.
+SQLite storage. The current repository export uses grouped, extensionless
+files containing one or more JSON documents; canonical .json/.jsonl files
+are also supported.
 
-The loader is deterministic, idempotent, provenance-aware and tolerant of
-non-data preamble lines that appear in grouped exports. Record-level raw data
-is preserved so later engines can use fields beyond the normalized retrieval
-columns.
+The loader is deterministic, idempotent, provenance-aware, and keeps an audit
+trail for duplicate/conflicting record identities.
 """
 from __future__ import annotations
 
@@ -22,10 +21,15 @@ from typing import Any, Iterator
 _DATASET_ID_RE = re.compile(r"^D(\d{1,2})$", re.IGNORECASE)
 _DATASET_RANGE_RE = re.compile(r"^D(\d{1,2})\s*-\s*D(\d{1,2})$", re.IGNORECASE)
 _RECORD_DATASET_RE = re.compile(r"^(D\d{1,2})(?:-|$)", re.IGNORECASE)
+_EXPECTED_DATASETS = tuple(f"D{i:02d}" for i in range(1, 59))
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
 @dataclass(slots=True)
@@ -42,6 +46,9 @@ class FabricRecord:
     framework: str = ""
     version: str = ""
     tags: list[str] = field(default_factory=list)
+    source_file: str = ""
+    source_line: int | None = None
+    content_hash: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +65,9 @@ class FabricRecord:
             "framework": self.framework,
             "version": self.version,
             "tags": list(self.tags),
+            "source_file": self.source_file,
+            "source_line": self.source_line,
+            "content_hash": self.content_hash,
         }
 
 
@@ -82,6 +92,7 @@ class KnowledgeFabricLoader:
                 source_file TEXT,
                 source_line INTEGER,
                 content_hash TEXT,
+                search_text TEXT NOT NULL DEFAULT '',
                 loaded_at TEXT NOT NULL
             );
         """)
@@ -92,12 +103,14 @@ class KnowledgeFabricLoader:
             "source_file": "TEXT",
             "source_line": "INTEGER",
             "content_hash": "TEXT",
+            "search_text": "TEXT NOT NULL DEFAULT ''",
         }
         for column, sql_type in required.items():
             if column not in existing:
                 self.storage.execute(
                     f"ALTER TABLE fabric_records ADD COLUMN {column} {sql_type}"
                 )
+
         for name, column in (
             ("idx_fabric_dataset", "dataset_id"),
             ("idx_fabric_language", "language"),
@@ -120,6 +133,7 @@ class KnowledgeFabricLoader:
                 updated_at TEXT NOT NULL
             );
         """)
+
         progress_existing = {
             r["name"] for r in self.storage.query("PRAGMA table_info(fabric_progress)")
         }
@@ -155,38 +169,73 @@ class KnowledgeFabricLoader:
                 updated_at TEXT NOT NULL
             );
         """)
+
         self.storage.execute("""
             CREATE TABLE IF NOT EXISTS fabric_sources (
                 source_file TEXT PRIMARY KEY,
                 source_hash TEXT NOT NULL,
                 source_format TEXT NOT NULL,
+                documents_parsed INTEGER NOT NULL DEFAULT 0,
                 records_seen INTEGER NOT NULL DEFAULT 0,
                 inserted INTEGER NOT NULL DEFAULT 0,
                 duplicate_records INTEGER NOT NULL DEFAULT 0,
+                conflicts INTEGER NOT NULL DEFAULT 0,
                 warnings INTEGER NOT NULL DEFAULT 0,
                 errors INTEGER NOT NULL DEFAULT 0,
                 completed INTEGER NOT NULL DEFAULT 0,
                 updated_at TEXT NOT NULL
             );
         """)
+        source_existing = {
+            r["name"] for r in self.storage.query("PRAGMA table_info(fabric_sources)")
+        }
+        source_required = {
+            "documents_parsed": "INTEGER NOT NULL DEFAULT 0",
+            "conflicts": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, sql_type in source_required.items():
+            if column not in source_existing:
+                self.storage.execute(
+                    f"ALTER TABLE fabric_sources ADD COLUMN {column} {sql_type}"
+                )
+
+        self.storage.execute("""
+            CREATE TABLE IF NOT EXISTS fabric_record_audit (
+                audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id TEXT NOT NULL,
+                dataset_id TEXT,
+                source_file TEXT NOT NULL,
+                source_line INTEGER,
+                action TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        """)
+        self.storage.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fabric_record_audit_record "
+            "ON fabric_record_audit(record_id);"
+        )
+        self.storage.execute(
+            "CREATE INDEX IF NOT EXISTS idx_fabric_record_audit_source "
+            "ON fabric_record_audit(source_file);"
+        )
 
     def _discover_files(self) -> list[Path]:
-        """Discover canonical JSON/JSONL and the current grouped D-range exports."""
         if not self.datasets_dir.exists():
             return []
-        found: list[Path] = []
+        files: list[Path] = []
         for path in self.datasets_dir.rglob("*"):
             if not path.is_file():
                 continue
             if path.name.lower() in {"readme.md", "readme.txt"}:
                 continue
-            suffix = path.suffix.lower()
-            if suffix in {".json", ".jsonl"}:
-                found.append(path)
+            if path.suffix.lower() in {".json", ".jsonl"}:
+                files.append(path)
                 continue
             if _DATASET_RANGE_RE.fullmatch(path.name):
-                found.append(path)
-        return sorted(found, key=lambda p: p.as_posix().lower())
+                files.append(path)
+        return sorted(files, key=lambda p: p.as_posix().lower())
 
     def load_all_datasets(self) -> dict[str, Any]:
         self.datasets_dir.mkdir(parents=True, exist_ok=True)
@@ -198,7 +247,11 @@ class KnowledgeFabricLoader:
             "warnings": [],
             "datasets": [],
             "source_formats": {},
+            "expected_dataset_ids": list(_EXPECTED_DATASETS),
+            "missing_dataset_ids": list(_EXPECTED_DATASETS),
         }
+        seen_datasets: set[str] = set()
+
         for path in files:
             result = self.load_dataset_file(path)
             report["files"] += 1
@@ -206,8 +259,19 @@ class KnowledgeFabricLoader:
             report["errors"].extend(result["errors"])
             report["warnings"].extend(result["warnings"])
             report["datasets"].append(result)
-            fmt = result["source_format"]
-            report["source_formats"][fmt] = report["source_formats"].get(fmt, 0) + 1
+            report["source_formats"][result["source_format"]] = (
+                report["source_formats"].get(result["source_format"], 0) + 1
+            )
+            seen_datasets.update(result["datasets_found"])
+
+        missing = sorted(set(_EXPECTED_DATASETS) - seen_datasets)
+        report["found_dataset_ids"] = sorted(seen_datasets)
+        report["missing_dataset_ids"] = missing
+        if missing:
+            report["warnings"].append({
+                "warning": "expected datasets are missing from the uploaded fabric",
+                "missing_dataset_ids": missing,
+            })
         return report
 
     def load_dataset_file(self, path: str | Path) -> dict[str, Any]:
@@ -221,99 +285,131 @@ class KnowledgeFabricLoader:
 
         text = path.read_text(encoding="utf-8")
         source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        source_format, manifest, entries, parse_warnings, parse_errors = self._parse_source(
-            text, path
-        )
+        (
+            source_format,
+            documents,
+            parse_warnings,
+            parse_errors,
+        ) = self._parse_source(text, path)
 
-        issues: list[dict[str, Any]] = list(parse_errors)
-        warnings: list[dict[str, Any]] = list(parse_warnings)
+        errors = list(parse_errors)
+        warnings = list(parse_warnings)
         seen_ids: set[str] = set()
         inserted = 0
         duplicates = 0
+        conflicts = 0
         valid = 0
         per_dataset: dict[str, dict[str, int]] = {}
+        dataset_contexts: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
 
-        for entry in entries:
-            raw = entry["raw"]
-            source_line = entry.get("source_line")
-            source_line_text = entry.get("source_line_text", "")
-            dataset_id = self._resolve_dataset_id(raw, manifest, path.name)
-            if not dataset_id:
-                issues.append({
-                    "file": path.name,
-                    "line": source_line,
-                    "error": "unable to resolve dataset_id for record",
-                })
-                continue
-
-            record_id = str(raw.get("record_id") or raw.get("id") or "").strip()
-            if not record_id:
-                record_id = self._hash_id(
-                    dataset_id,
-                    int(source_line or (valid + 1)),
-                    source_line_text or json.dumps(raw, ensure_ascii=False, sort_keys=True),
+        for document in documents:
+            context = document.get("context", {})
+            manifest = document.get("manifest", {})
+            for record_entry in document.get("records", []):
+                raw = record_entry["raw"]
+                source_line = record_entry.get("source_line")
+                source_line_text = record_entry.get("source_line_text", "")
+                dataset_id = self._resolve_dataset_id(
+                    raw, context, manifest, path.name
                 )
-            if record_id in seen_ids:
-                duplicates += 1
-                issues.append({
-                    "file": path.name,
-                    "line": source_line,
-                    "error": f"duplicate record_id in source: {record_id}",
-                })
-                continue
-            seen_ids.add(record_id)
-            valid += 1
+                if not dataset_id:
+                    errors.append({
+                        "file": path.name,
+                        "line": source_line,
+                        "error": "unable to resolve dataset_id for record",
+                    })
+                    continue
 
-            status = self._insert_record(
-                dataset_id,
-                record_id,
-                raw,
-                path.name,
-                source_line,
-                source_line_text or json.dumps(raw, ensure_ascii=False, sort_keys=True),
-            )
-            if status == "inserted":
-                inserted += 1
-            elif status == "duplicate_same":
-                duplicates += 1
-            else:
-                issues.append({
-                    "file": path.name,
-                    "line": source_line,
-                    "error": f"record_id already exists with different content: {record_id}",
-                })
+                record_id = str(raw.get("record_id") or raw.get("id") or "").strip()
+                if not record_id:
+                    record_id = self._hash_id(
+                        dataset_id,
+                        int(source_line or (valid + 1)),
+                        source_line_text or _canonical_json(raw),
+                    )
 
-            counts = per_dataset.setdefault(
-                dataset_id, {"seen": 0, "inserted": 0, "duplicates": 0, "errors": 0}
-            )
-            counts["seen"] += 1
-            if status == "inserted":
-                counts["inserted"] += 1
-            elif status == "duplicate_same":
-                counts["duplicates"] += 1
-            elif status == "duplicate_conflict":
-                counts["errors"] += 1
+                if record_id in seen_ids:
+                    duplicates += 1
+                    self._audit_occurrence(
+                        record_id,
+                        dataset_id,
+                        path.name,
+                        source_line,
+                        "duplicate_in_source",
+                        self._content_hash(raw),
+                        raw,
+                    )
+                    continue
+                seen_ids.add(record_id)
+                valid += 1
 
-            self._upsert_dataset_catalog(
-                dataset_id,
-                raw,
-                manifest,
-                path.name,
-            )
+                status = self._insert_record(
+                    dataset_id=dataset_id,
+                    record_id=record_id,
+                    raw=raw,
+                    source_file=path.name,
+                    source_line=source_line,
+                    source_line_text=source_line_text or _canonical_json(raw),
+                )
+                self._audit_occurrence(
+                    record_id,
+                    dataset_id,
+                    path.name,
+                    source_line,
+                    status,
+                    self._content_hash(raw),
+                    raw,
+                )
 
-        error_count = len(issues)
+                if status == "inserted":
+                    inserted += 1
+                elif status == "duplicate_same":
+                    duplicates += 1
+                elif status == "duplicate_conflict":
+                    conflicts += 1
+                    errors.append({
+                        "file": path.name,
+                        "line": source_line,
+                        "error": f"record_id exists with different content: {record_id}",
+                    })
+
+                counts = per_dataset.setdefault(
+                    dataset_id,
+                    {"seen": 0, "inserted": 0, "duplicates": 0, "conflicts": 0},
+                )
+                counts["seen"] += 1
+                if status == "inserted":
+                    counts["inserted"] += 1
+                elif status == "duplicate_same":
+                    counts["duplicates"] += 1
+                elif status == "duplicate_conflict":
+                    counts["conflicts"] += 1
+
+                dataset_contexts.setdefault(dataset_id, (context, manifest))
+                self._upsert_dataset_catalog(
+                    dataset_id,
+                    raw,
+                    context,
+                    manifest,
+                    path.name,
+                )
+
+        error_count = len(errors)
         self.storage.execute(
             """
             INSERT INTO fabric_sources
-              (source_file, source_hash, source_format, records_seen, inserted,
-               duplicate_records, warnings, errors, completed, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (source_file, source_hash, source_format, documents_parsed,
+               records_seen, inserted, duplicate_records, conflicts,
+               warnings, errors, completed, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_file) DO UPDATE SET
               source_hash=excluded.source_hash,
               source_format=excluded.source_format,
+              documents_parsed=excluded.documents_parsed,
               records_seen=excluded.records_seen,
               inserted=excluded.inserted,
               duplicate_records=excluded.duplicate_records,
+              conflicts=excluded.conflicts,
               warnings=excluded.warnings,
               errors=excluded.errors,
               completed=excluded.completed,
@@ -323,9 +419,11 @@ class KnowledgeFabricLoader:
                 path.name,
                 source_hash,
                 source_format,
-                len(entries),
+                len(documents),
+                valid,
                 inserted,
                 duplicates,
+                conflicts,
                 len(warnings),
                 error_count,
                 int(error_count == 0),
@@ -354,10 +452,10 @@ class KnowledgeFabricLoader:
                     dataset_id,
                     path.name,
                     counts["seen"],
-                    counts["seen"] - counts["errors"],
+                    counts["seen"] - counts["conflicts"],
                     total,
-                    counts["errors"],
-                    int(counts["errors"] == 0),
+                    counts["conflicts"],
+                    int(counts["conflicts"] == 0),
                     now_iso(),
                 ),
             )
@@ -365,139 +463,141 @@ class KnowledgeFabricLoader:
         return {
             "file": path.name,
             "source_format": source_format,
+            "documents_parsed": len(documents),
             "datasets_found": sorted(per_dataset),
-            "lines": len(entries),
+            "lines": valid,
             "valid": valid,
             "inserted": inserted,
             "duplicates": duplicates,
-            "loaded_total": sum(self._count_dataset(d) for d in per_dataset),
-            "errors": issues,
+            "conflicts": conflicts,
+            "loaded_total": sum(
+                self._count_dataset(dataset_id) for dataset_id in per_dataset
+            ),
+            "errors": errors,
             "warnings": warnings,
             "completed": error_count == 0,
         }
 
+    @staticmethod
     def _parse_source(
-        self, text: str, path: Path
-    ) -> tuple[str, dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-        stripped = text.lstrip()
-        if not stripped:
-            return "empty", {}, [], [], []
+        text: str, path: Path
+    ) -> tuple[
+        str,
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        if not text.strip():
+            return "empty", [], [], []
 
-        try:
-            payload = json.loads(text)
-        except json.JSONDecodeError:
-            return (*self._parse_jsonl_like(text, path),)
+        decoder = json.JSONDecoder()
+        documents: list[dict[str, Any]] = []
+        skipped_fragments = 0
+        invalid_fragments = 0
+        cursor = 0
 
+        while cursor < len(text):
+            object_pos = text.find("{", cursor)
+            array_pos = text.find("[", cursor)
+            candidates = [p for p in (object_pos, array_pos) if p >= 0]
+            if not candidates:
+                if text[cursor:].strip():
+                    skipped_fragments += 1
+                break
+
+            start = min(candidates)
+            if text[cursor:start].strip():
+                skipped_fragments += 1
+
+            try:
+                payload, end = decoder.raw_decode(text, start)
+            except json.JSONDecodeError:
+                invalid_fragments += 1
+                cursor = start + 1
+                continue
+
+            line_no = text.count("\n", 0, start) + 1
+            cursor = end
+
+            document = KnowledgeFabricLoader._document_from_payload(
+                payload, line_no
+            )
+            if document is not None:
+                documents.append(document)
+
+        warnings: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        if skipped_fragments:
+            warnings.append({
+                "file": path.name,
+                "warning": "ignored non-JSON text/header fragments",
+                "fragment_count": skipped_fragments,
+            })
+        if invalid_fragments:
+            errors.append({
+                "file": path.name,
+                "line": None,
+                "error": "unparseable JSON fragments were encountered",
+                "fragment_count": invalid_fragments,
+            })
+
+        if not documents:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "no dataset records/documents were parsed",
+            })
+        return "json_document_stream", documents, warnings, errors
+
+    @staticmethod
+    def _document_from_payload(
+        payload: Any, source_line: int
+    ) -> dict[str, Any] | None:
         if isinstance(payload, dict):
             manifest = payload.get("dataset_manifest")
             if not isinstance(manifest, dict):
                 manifest = {}
+
+            records: list[dict[str, Any]] = []
             if isinstance(payload.get("records"), list):
-                entries = [
-                    {
-                        "raw": raw,
-                        "source_line": index + 1,
-                        "source_line_text": json.dumps(raw, ensure_ascii=False, sort_keys=True),
-                    }
-                    for index, raw in enumerate(payload["records"])
-                    if isinstance(raw, dict)
-                ]
-                invalid = [
-                    index + 1
-                    for index, raw in enumerate(payload["records"])
-                    if not isinstance(raw, dict)
-                ]
-                errors = [
-                    {"file": path.name, "line": line, "error": "record must be a JSON object"}
-                    for line in invalid
-                ]
-                return "json_manifest", manifest, entries, [], errors
-            if payload.get("record_id") or payload.get("id"):
-                return (
-                    "json_record",
-                    manifest,
-                    [{
-                        "raw": payload,
-                        "source_line": 1,
-                        "source_line_text": json.dumps(payload, ensure_ascii=False, sort_keys=True),
-                    }],
-                    [],
-                    [],
-                )
-            return (
-                "json_metadata",
-                manifest,
-                [],
-                [],
-                [{"file": path.name, "line": 1, "error": "JSON object has no records"}],
-            )
+                for item in payload["records"]:
+                    if isinstance(item, dict):
+                        records.append({
+                            "raw": item,
+                            "source_line": source_line,
+                            "source_line_text": _canonical_json(item),
+                        })
+            elif payload.get("record_id") or payload.get("id"):
+                records.append({
+                    "raw": payload,
+                    "source_line": source_line,
+                    "source_line_text": _canonical_json(payload),
+                })
+            else:
+                return None
+
+            context = dict(payload)
+            return {
+                "context": context,
+                "manifest": manifest,
+                "records": records,
+            }
 
         if isinstance(payload, list):
-            entries = [
+            records = [
                 {
-                    "raw": raw,
-                    "source_line": index + 1,
-                    "source_line_text": json.dumps(raw, ensure_ascii=False, sort_keys=True),
+                    "raw": item,
+                    "source_line": source_line,
+                    "source_line_text": _canonical_json(item),
                 }
-                for index, raw in enumerate(payload)
-                if isinstance(raw, dict)
+                for item in payload
+                if isinstance(item, dict)
             ]
-            errors = [
-                {"file": path.name, "line": index + 1, "error": "record must be a JSON object"}
-                for index, raw in enumerate(payload)
-                if not isinstance(raw, dict)
-            ]
-            return "json_array", {}, entries, [], errors
+            if not records:
+                return None
+            return {"context": {}, "manifest": {}, "records": records}
 
-        return (
-            "json_invalid",
-            {},
-            [],
-            [],
-            [{"file": path.name, "line": 1, "error": "top-level JSON value is unsupported"}],
-        )
-
-    @staticmethod
-    def _parse_jsonl_like(
-        text: str, path: Path
-    ) -> tuple[str, dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-        entries: list[dict[str, Any]] = []
-        warnings: list[dict[str, Any]] = []
-        errors: list[dict[str, Any]] = []
-        for line_num, raw_line in enumerate(text.splitlines(), 1):
-            line = raw_line.strip()
-            if not line:
-                continue
-            if not line.startswith("{"):
-                # Current grouped exports contain human-readable batch headers.
-                warnings.append({
-                    "file": path.name,
-                    "line": line_num,
-                    "warning": "ignored non-JSON preamble/header line",
-                })
-                continue
-            try:
-                raw = json.loads(line)
-            except json.JSONDecodeError as exc:
-                errors.append({
-                    "file": path.name,
-                    "line": line_num,
-                    "error": f"invalid JSON: {exc.msg}",
-                })
-                continue
-            if not isinstance(raw, dict):
-                errors.append({
-                    "file": path.name,
-                    "line": line_num,
-                    "error": "record must be a JSON object",
-                })
-                continue
-            entries.append({
-                "raw": raw,
-                "source_line": line_num,
-                "source_line_text": line,
-            })
-        return "jsonl_or_grouped", {}, entries, warnings, errors
+        return None
 
     @staticmethod
     def _normalise_dataset_id(value: Any) -> str | None:
@@ -509,11 +609,17 @@ class KnowledgeFabricLoader:
         return f"D{int(match.group(1)):02d}"
 
     def _resolve_dataset_id(
-        self, raw: dict[str, Any], manifest: dict[str, Any], source_name: str
+        self,
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        source_name: str,
     ) -> str | None:
         for value in (
             raw.get("dataset_id"),
             raw.get("dataset"),
+            context.get("dataset_id"),
+            context.get("dataset"),
             manifest.get("dataset_id"),
         ):
             dataset_id = self._normalise_dataset_id(value)
@@ -531,24 +637,36 @@ class KnowledgeFabricLoader:
         if range_match:
             start = int(range_match.group(1))
             end = int(range_match.group(2))
+            # A range name cannot identify one dataset when it contains more
+            # than one dataset, so only use this fallback for a single range.
             if start == end:
                 return f"D{start:02d}"
         return None
 
     @staticmethod
-    def _catalog_value(raw: dict[str, Any], manifest: dict[str, Any], key: str) -> str:
-        for source in (raw, manifest):
+    def _catalog_value(
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        key: str,
+    ) -> str:
+        for source in (raw, context, manifest):
             value = source.get(key)
             if value is not None:
                 if isinstance(value, (dict, list)):
-                    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+                    return _canonical_json(value)
                 return str(value)
         return ""
 
     def _upsert_dataset_catalog(
-        self, dataset_id: str, raw: dict[str, Any], manifest: dict[str, Any], source_file: str
+        self,
+        dataset_id: str,
+        raw: dict[str, Any],
+        context: dict[str, Any],
+        manifest: dict[str, Any],
+        source_file: str,
     ) -> None:
-        manifest_json = manifest if manifest else {}
+        manifest_json = manifest or {}
         self.storage.execute(
             """
             INSERT INTO fabric_datasets
@@ -572,23 +690,28 @@ class KnowledgeFabricLoader:
             """,
             (
                 dataset_id,
-                self._catalog_value(raw, manifest, "dataset_name"),
-                self._catalog_value(raw, manifest, "dataset_version"),
-                self._catalog_value(raw, manifest, "schema_version"),
-                self._catalog_value(raw, manifest, "status"),
-                self._catalog_value(raw, manifest, "language"),
-                self._catalog_value(raw, manifest, "authority"),
-                self._catalog_value(raw, manifest, "scope"),
-                self._catalog_value(raw, manifest, "scope_boundary"),
-                self._catalog_value(raw, manifest, "purpose"),
-                json.dumps(manifest_json, ensure_ascii=False, sort_keys=True),
+                self._catalog_value(raw, context, manifest, "dataset_name"),
+                self._catalog_value(raw, context, manifest, "dataset_version"),
+                self._catalog_value(raw, context, manifest, "schema_version"),
+                self._catalog_value(raw, context, manifest, "status"),
+                self._catalog_value(raw, context, manifest, "language"),
+                self._catalog_value(raw, context, manifest, "authority"),
+                self._catalog_value(raw, context, manifest, "scope"),
+                self._catalog_value(raw, context, manifest, "scope_boundary"),
+                self._catalog_value(raw, context, manifest, "purpose"),
+                _canonical_json(manifest_json),
                 source_file,
                 now_iso(),
             ),
         )
 
+    @staticmethod
+    def _content_hash(raw: dict[str, Any]) -> str:
+        return hashlib.sha256(_canonical_json(raw).encode("utf-8")).hexdigest()
+
     def _insert_record(
         self,
+        *,
         dataset_id: str,
         record_id: str,
         raw: dict[str, Any],
@@ -596,13 +719,17 @@ class KnowledgeFabricLoader:
         source_line: int | None,
         source_line_text: str,
     ) -> str:
-        content_hash = hashlib.sha256(source_line_text.encode("utf-8")).hexdigest()
+        content_hash = self._content_hash(raw)
         existing = self.storage.query_one(
             "SELECT content_hash FROM fabric_records WHERE record_id=?",
             (record_id,),
         )
         if existing:
-            return "duplicate_same" if existing["content_hash"] == content_hash else "duplicate_conflict"
+            return (
+                "duplicate_same"
+                if existing["content_hash"] == content_hash
+                else "duplicate_conflict"
+            )
 
         tags = raw.get("tags", [])
         if tags is None:
@@ -611,15 +738,24 @@ class KnowledgeFabricLoader:
             tags = [tags]
         elif not isinstance(tags, list):
             tags = [str(tags)]
-        tags = [str(x) for x in tags]
+        tags = [str(tag) for tag in tags]
+
+        search_parts: list[str] = []
+        for key, value in raw.items():
+            if isinstance(value, (str, int, float, bool)):
+                search_parts.append(f"{key}={value}")
+            elif isinstance(value, list):
+                search_parts.extend(str(item) for item in value if isinstance(item, (str, int, float, bool)))
+        search_text = " ".join(search_parts)
 
         self.storage.execute(
             """
             INSERT INTO fabric_records
               (record_id, dataset_id, topic, concept, knowledge_type, question,
                answer, explanation, language, framework, version, tags_json,
-               raw_json, source_file, source_line, content_hash, loaded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+               raw_json, source_file, source_line, content_hash, search_text,
+               loaded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """,
             (
                 record_id,
@@ -633,15 +769,45 @@ class KnowledgeFabricLoader:
                 str(raw.get("language", "")),
                 str(raw.get("framework", "")),
                 str(raw.get("version", raw.get("version_range", ""))),
-                json.dumps(tags, ensure_ascii=False),
-                json.dumps(raw, ensure_ascii=False, default=str),
+                json.dumps(tags, ensure_ascii=False, default=str),
+                _canonical_json(raw),
                 source_file,
                 source_line,
                 content_hash,
+                search_text,
                 now_iso(),
             ),
         )
         return "inserted"
+
+    def _audit_occurrence(
+        self,
+        record_id: str,
+        dataset_id: str,
+        source_file: str,
+        source_line: int | None,
+        action: str,
+        content_hash: str,
+        raw: dict[str, Any],
+    ) -> None:
+        self.storage.execute(
+            """
+            INSERT INTO fabric_record_audit
+              (record_id, dataset_id, source_file, source_line, action,
+               content_hash, raw_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                record_id,
+                dataset_id,
+                source_file,
+                source_line,
+                action,
+                content_hash,
+                _canonical_json(raw),
+                now_iso(),
+            ),
+        )
 
     def get_batch(
         self,
@@ -658,7 +824,7 @@ class KnowledgeFabricLoader:
         params: list[Any] = []
         if dataset_id:
             sql += " AND dataset_id=?"
-            params.append(dataset_id)
+            params.append(self._normalise_dataset_id(dataset_id) or dataset_id)
         if language:
             sql += " AND language=?"
             params.append(language)
@@ -693,12 +859,20 @@ class KnowledgeFabricLoader:
     ) -> list[FabricRecord]:
         if not query or limit <= 0:
             return []
-        terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_+#.-]+", query) if len(t) >= 2]
+        terms = [
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9_+#.-]+", query)
+            if len(token) >= 2
+        ]
         if not terms:
             return []
 
         clauses: list[str] = []
         params: list[Any] = []
+        fields = (
+            "question", "answer", "explanation", "concept", "topic",
+            "tags_json", "framework", "language", "search_text",
+        )
         for term in terms:
             escaped = (
                 term.replace("\\", "\\\\")
@@ -706,22 +880,16 @@ class KnowledgeFabricLoader:
                 .replace("_", "\_")
             )
             like = f"%{escaped}%"
-            clauses.append(
-                "(LOWER(question) LIKE ? ESCAPE '\\' OR "
-                "LOWER(answer) LIKE ? ESCAPE '\\' OR "
-                "LOWER(explanation) LIKE ? ESCAPE '\\' OR "
-                "LOWER(concept) LIKE ? ESCAPE '\\' OR "
-                "LOWER(topic) LIKE ? ESCAPE '\\' OR "
-                "LOWER(tags_json) LIKE ? ESCAPE '\\' OR "
-                "LOWER(framework) LIKE ? ESCAPE '\\' OR "
-                "LOWER(language) LIKE ? ESCAPE '\\')"
-            )
-            params.extend([like] * 8)
+            clauses.append("(" + " OR ".join(
+                f"LOWER({field}) LIKE ? ESCAPE '\\'"
+                for field in fields
+            ) + ")")
+            params.extend([like] * len(fields))
 
         sql = "SELECT * FROM fabric_records WHERE (" + " OR ".join(clauses) + ")"
         if dataset_id:
             sql += " AND dataset_id=?"
-            params.append(dataset_id)
+            params.append(self._normalise_dataset_id(dataset_id) or dataset_id)
         if language:
             sql += " AND language=?"
             params.append(language)
@@ -737,8 +905,26 @@ class KnowledgeFabricLoader:
             "SELECT * FROM fabric_datasets ORDER BY dataset_id"
         )
 
+    def coverage_audit(self) -> dict[str, Any]:
+        present_rows = self.storage.query(
+            "SELECT dataset_id, COUNT(*) AS c FROM fabric_records "
+            "GROUP BY dataset_id ORDER BY dataset_id"
+        )
+        present = {row["dataset_id"]: int(row["c"]) for row in present_rows}
+        missing = sorted(set(_EXPECTED_DATASETS) - set(present))
+        return {
+            "expected": list(_EXPECTED_DATASETS),
+            "present": sorted(present),
+            "missing": missing,
+            "dataset_count": len(present),
+            "complete": not missing,
+            "record_counts": present,
+        }
+
     def stats(self) -> dict[str, Any]:
-        total = self.storage.query_one("SELECT COUNT(*) AS c FROM fabric_records")
+        total = self.storage.query_one(
+            "SELECT COUNT(*) AS c FROM fabric_records"
+        )
         datasets = self.storage.query(
             "SELECT dataset_id, COUNT(*) AS c FROM fabric_records "
             "GROUP BY dataset_id ORDER BY dataset_id"
@@ -752,17 +938,17 @@ class KnowledgeFabricLoader:
             "FROM fabric_progress ORDER BY dataset_id"
         )
         sources = self.storage.query(
-            "SELECT source_file, source_format, records_seen, inserted, "
-            "duplicate_records, warnings, errors, completed "
+            "SELECT source_file, source_format, documents_parsed, records_seen, "
+            "inserted, duplicate_records, conflicts, warnings, errors, completed "
             "FROM fabric_sources ORDER BY source_file"
         )
-        catalog = self.dataset_catalog()
         return {
             "total_records": int(total["c"]) if total else 0,
             "datasets": {r["dataset_id"]: int(r["c"]) for r in datasets},
             "languages": {r["language"]: int(r["c"]) for r in langs},
-            "dataset_count": len(catalog),
-            "dataset_catalog": catalog,
+            "dataset_count": len(datasets),
+            "dataset_catalog": self.dataset_catalog(),
+            "coverage": self.coverage_audit(),
             "progress": progress,
             "sources": sources,
         }
@@ -804,5 +990,8 @@ class KnowledgeFabricLoader:
             framework=row.get("framework") or "",
             version=row.get("version") or "",
             tags=tags if isinstance(tags, list) else [],
+            source_file=row.get("source_file") or "",
+            source_line=row.get("source_line"),
+            content_hash=row.get("content_hash") or "",
             raw=raw if isinstance(raw, dict) else {},
         )
