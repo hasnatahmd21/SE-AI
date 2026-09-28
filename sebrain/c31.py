@@ -737,27 +737,31 @@ class CrossProjectKnowledgeStore:
             version_req=dict(version_req or {}),
             confidence=confidence, provenance=prov, rationale=rationale,
         )
-        self.storage.execute(
-            "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
-            "content, tags, version_req, confidence, provenance_json, "
-            "rationale, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-            (
-                rec.id, rec.scope.value, rec.owner_project_id, rec.key,
-                json.dumps(rec.content, default=str),
-                json.dumps(rec.tags),
-                json.dumps(rec.version_req),
-                rec.confidence.value,
-                json.dumps(rec.provenance.to_dict(), default=str),
-                rec.rationale, rec.status,
-                rec.created_at, rec.updated_at,
-            ),
-        )
-        self._audit(
-            project_id=owner, action="put", scope=scope.value,
-            key=key, result_count=1,
-            detail=f"confidence={rec.confidence.value}",
-        )
+        # Knowledge creation and its audit entry must commit together.
+        # Otherwise an audit failure can leave an un-audited knowledge row.
+        with self.storage.transaction():
+            self.storage.execute(
+                "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
+                "content, tags, version_req, confidence, provenance_json, "
+                "rationale, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                (
+                    rec.id, rec.scope.value, rec.owner_project_id, rec.key,
+                    json.dumps(rec.content, default=str),
+                    json.dumps(rec.tags),
+                    json.dumps(rec.version_req),
+                    rec.confidence.value,
+                    json.dumps(rec.provenance.to_dict(), default=str),
+                    rec.rationale, rec.status,
+                    rec.created_at, rec.updated_at,
+                ),
+            )
+            self._audit(
+                project_id=owner, action="put", scope=scope.value,
+                key=key, result_count=1,
+                detail=f"confidence={rec.confidence.value}",
+            )
+
         return rec
 
     # ---- row helpers ----
