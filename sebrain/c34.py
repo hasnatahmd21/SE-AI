@@ -756,6 +756,49 @@ class KnowledgeFabricLoader:
         if control_changed:
             candidates.append(control_repaired)
 
+        # Some exports carry Python-style escapes such as \\' inside
+        # JSON strings. JSON permits only its defined escape set; preserve the
+        # intended character by escaping the backslash itself only when the
+        # following escape sequence is not JSON-valid.
+        json_escape_buf: list[str] = []
+        json_escape_in_string = False
+        json_escape_changed = False
+        valid_escapes = set('"\\/bfnrtu')
+        idx = 0
+        while idx < len(line):
+            char = line[idx]
+            if not json_escape_in_string:
+                json_escape_buf.append(char)
+                if char == '"':
+                    json_escape_in_string = True
+                idx += 1
+                continue
+            if char == '"':
+                json_escape_buf.append(char)
+                json_escape_in_string = False
+                idx += 1
+                continue
+            if char == '\\':
+                if idx + 1 >= len(line):
+                    json_escape_buf.extend(['\\', '\\'])
+                    json_escape_changed = True
+                    idx += 1
+                    continue
+                nxt = line[idx + 1]
+                if nxt in valid_escapes:
+                    json_escape_buf.extend([char, nxt])
+                    idx += 2
+                    continue
+                json_escape_buf.extend(['\\', '\\', nxt])
+                json_escape_changed = True
+                idx += 2
+                continue
+            json_escape_buf.append(char)
+            idx += 1
+        json_escape_repaired = "".join(json_escape_buf)
+        if json_escape_changed:
+            candidates.append(json_escape_repaired)
+
         # Do not evaluate or normalize embedded code/string concatenation
         # expressions. Their text is part of the dataset's evidence and must
         # survive repair byte-for-byte at the semantic string level. The repair
