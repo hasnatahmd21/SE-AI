@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage
+from sebrain.c01 import SQLiteStorage, TransactionError
 from sebrain.c04 import MemoryKind, MemoryScope, MemoryStore
 from sebrain.c29 import GovernanceEngine, RollbackReason
 
@@ -33,7 +33,7 @@ def test_c29_rollback_is_atomic_on_restore_failure():
                 scope="s", reason=RollbackReason.MANUAL,
                 project_id="p", to_version=1,
             )
-        except RuntimeError as exc:
+        except TransactionError as exc:
             assert "synthetic restore failure" in str(exc)
         else:
             raise AssertionError("restore failure was swallowed")
