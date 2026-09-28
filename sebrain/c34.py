@@ -699,6 +699,29 @@ class KnowledgeFabricLoader:
             return None
 
         candidates: list[str] = []
+
+        # Some grouped exports wrap each JSON record in a single-quote
+        # transport wrapper, producing lines such as
+        # '{"record_id":"...","answer":"..."}'.  The apostrophes are outside
+        # the JSON document and must not become part of the record payload.
+        # Accept this form only when removing the matching wrapper produces
+        # valid record-shaped JSON.
+        stripped_wrapper = line.strip()
+        if (
+            len(stripped_wrapper) >= 2
+            and stripped_wrapper.startswith("'")
+            and stripped_wrapper.endswith("'")
+        ):
+            wrapper_candidate = stripped_wrapper[1:-1]
+            try:
+                payload = json.loads(wrapper_candidate)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and (
+                payload.get("record_id") or payload.get("id")
+            ):
+                candidates.append(wrapper_candidate)
+
         # JSON strings cannot contain literal control characters. Preserve their
         # meaning by escaping only control characters encountered while inside
         # a string value; do not alter structural whitespace outside strings.
