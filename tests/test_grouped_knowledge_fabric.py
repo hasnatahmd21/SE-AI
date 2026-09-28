@@ -193,7 +193,7 @@ def test_json_quote_repair_helper_recovers_embedded_code_quotes():
     assert repaired is not None
     payload = json.loads(repaired)
     assert payload["record_id"] == "D58-HELPER-001"
-    # Generated string-concatenation artifacts are normalized deterministically.
+    # JSON repair must preserve the embedded expression's semantic text.
     assert payload["invalid_example"] == (
-        "SELECT * FROM users WHERE name = 'USER_INPUT'"
+        "SELECT * FROM users WHERE name = '" + "USER_INPUT" + "'"
     )
