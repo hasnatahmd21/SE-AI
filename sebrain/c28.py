@@ -959,7 +959,7 @@ class UncertaintyCheck(_BaseCheck):
             )
 
         values = [
-            self.CONFIDENCE_WEIGHT.get(label, 0.3)
+            self.CONFIDENCE_WEIGHT.get(label, self.CONFIDENCE_WEIGHT["unknown"])
             for _, label in pieces
         ]
         avg = sum(values) / len(values)
