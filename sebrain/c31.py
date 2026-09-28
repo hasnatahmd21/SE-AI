@@ -930,75 +930,76 @@ class CrossProjectKnowledgeStore:
         if dry_run:
             return transition, evaluation
 
-        # Persist the transition regardless of verdict (audit)
-        self._persist_transition(transition)
-
-        if evaluation.overall is PromotionAction.PROMOTE:
-            # create a shared copy; keep original
-            existing = self.storage.query_one(
-                "SELECT id FROM c31_knowledge WHERE scope='shared' AND "
-                "owner_project_id='' AND key=?;",
-                (key,),
-            )
-            if existing is not None:
-                # Already shared → mark HOLD
-                transition.action = PromotionAction.HOLD
-                transition.policy_verdict = "hold"
-                transition.rationale += (
-                    "; shared record with same key already exists"
+        with self.storage.transaction():
+            # Persist the transition regardless of verdict (audit)
+            self._persist_transition(transition)
+    
+            if evaluation.overall is PromotionAction.PROMOTE:
+                # create a shared copy; keep original
+                existing = self.storage.query_one(
+                    "SELECT id FROM c31_knowledge WHERE scope='shared' AND "
+                    "owner_project_id='' AND key=?;",
+                    (key,),
                 )
-                self._update_transition_action(transition)
+                if existing is not None:
+                    # Already shared → mark HOLD
+                    transition.action = PromotionAction.HOLD
+                    transition.policy_verdict = "hold"
+                    transition.rationale += (
+                        "; shared record with same key already exists"
+                    )
+                    self._update_transition_action(transition)
+                    return transition, evaluation
+                new_rec = KnowledgeRecord(
+                    id=_new_id(), scope=KnowledgeScope.SHARED, owner_project_id="",
+                    key=key, content=rec.content, tags=rec.tags,
+                    version_req=rec.version_req, confidence=rec.confidence,
+                    provenance=Provenance(
+                        source=f"promoted_from:{project_id}",
+                        source_type=ProvenanceType.AGENT,
+                        reference=rec.id,
+                        confidence=rec.confidence,
+                        notes=f"promoted by {actor}",
+                    ),
+                    rationale=(
+                        f"promoted from project '{project_id}': "
+                        f"{rationale or rec.rationale}"
+                    ),
+                )
+                self.storage.execute(
+                    "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
+                    "content, tags, version_req, confidence, provenance_json, "
+                    "rationale, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    (
+                        new_rec.id, new_rec.scope.value,
+                        new_rec.owner_project_id, new_rec.key,
+                        json.dumps(new_rec.content, default=str),
+                        json.dumps(new_rec.tags),
+                        json.dumps(new_rec.version_req),
+                        new_rec.confidence.value,
+                        json.dumps(new_rec.provenance.to_dict(), default=str),
+                        new_rec.rationale, new_rec.status,
+                        new_rec.created_at, new_rec.updated_at,
+                    ),
+                )
+                self._audit(
+                    project_id=project_id, action="promote",
+                    scope="shared", key=key, result_count=1,
+                    detail=f"actor={actor}",
+                )
                 return transition, evaluation
-            new_rec = KnowledgeRecord(
-                id=_new_id(), scope=KnowledgeScope.SHARED, owner_project_id="",
-                key=key, content=rec.content, tags=rec.tags,
-                version_req=rec.version_req, confidence=rec.confidence,
-                provenance=Provenance(
-                    source=f"promoted_from:{project_id}",
-                    source_type=ProvenanceType.AGENT,
-                    reference=rec.id,
-                    confidence=rec.confidence,
-                    notes=f"promoted by {actor}",
-                ),
-                rationale=(
-                    f"promoted from project '{project_id}': "
-                    f"{rationale or rec.rationale}"
-                ),
-            )
-            self.storage.execute(
-                "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
-                "content, tags, version_req, confidence, provenance_json, "
-                "rationale, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                (
-                    new_rec.id, new_rec.scope.value,
-                    new_rec.owner_project_id, new_rec.key,
-                    json.dumps(new_rec.content, default=str),
-                    json.dumps(new_rec.tags),
-                    json.dumps(new_rec.version_req),
-                    new_rec.confidence.value,
-                    json.dumps(new_rec.provenance.to_dict(), default=str),
-                    new_rec.rationale, new_rec.status,
-                    new_rec.created_at, new_rec.updated_at,
-                ),
-            )
+    
+            # HOLD or REJECT: no row created
             self._audit(
-                project_id=project_id, action="promote",
-                scope="shared", key=key, result_count=1,
+                project_id=project_id,
+                action=f"promote_{evaluation.overall.value}",
+                scope="project", key=key, result_count=0,
                 detail=f"actor={actor}",
             )
             return transition, evaluation
-
-        # HOLD or REJECT: no row created
-        self._audit(
-            project_id=project_id,
-            action=f"promote_{evaluation.overall.value}",
-            scope="project", key=key, result_count=0,
-            detail=f"actor={actor}",
-        )
-        return transition, evaluation
-
-    def _persist_transition(self, t: PromotionRecord) -> None:
+    
+        def _persist_transition(self, t: PromotionRecord) -> None:
         self.storage.execute(
             "INSERT INTO c31_transitions(id, ts, action, from_scope, "
             "to_scope, owner_project_id, key, actor, rationale, "
@@ -1039,66 +1040,67 @@ class CrossProjectKnowledgeStore:
         if row is None:
             raise ValidationError(f"no active shared record '{key}'")
         rec = self._row_to_rec(row)
-        # Copy to project (may collide)
-        existing = self.storage.query_one(
-            "SELECT id FROM c31_knowledge WHERE scope='project' AND "
-            "owner_project_id=? AND key=?;",
-            (target_project_id, key),
-        )
-        if existing is None:
-            new_rec = KnowledgeRecord(
-                id=_new_id(), scope=KnowledgeScope.PROJECT,
-                owner_project_id=target_project_id,
-                key=key, content=rec.content, tags=rec.tags,
-                version_req=rec.version_req, confidence=rec.confidence,
-                provenance=Provenance(
-                    source=f"demoted_from_shared_by:{actor}",
-                    source_type=ProvenanceType.AGENT,
-                    reference=rec.id,
-                    confidence=rec.confidence,
-                ),
-                rationale=(
-                    f"demoted from shared: {rationale or 'no reason'}"
-                ),
+        with self.storage.transaction():
+            # Copy to project (may collide)
+            existing = self.storage.query_one(
+                "SELECT id FROM c31_knowledge WHERE scope='project' AND "
+                "owner_project_id=? AND key=?;",
+                (target_project_id, key),
             )
+            if existing is None:
+                new_rec = KnowledgeRecord(
+                    id=_new_id(), scope=KnowledgeScope.PROJECT,
+                    owner_project_id=target_project_id,
+                    key=key, content=rec.content, tags=rec.tags,
+                    version_req=rec.version_req, confidence=rec.confidence,
+                    provenance=Provenance(
+                        source=f"demoted_from_shared_by:{actor}",
+                        source_type=ProvenanceType.AGENT,
+                        reference=rec.id,
+                        confidence=rec.confidence,
+                    ),
+                    rationale=(
+                        f"demoted from shared: {rationale or 'no reason'}"
+                    ),
+                )
+                self.storage.execute(
+                    "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
+                    "content, tags, version_req, confidence, provenance_json, "
+                    "rationale, status, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    (
+                        new_rec.id, new_rec.scope.value,
+                        new_rec.owner_project_id, new_rec.key,
+                        json.dumps(new_rec.content, default=str),
+                        json.dumps(new_rec.tags),
+                        json.dumps(new_rec.version_req),
+                        new_rec.confidence.value,
+                        json.dumps(new_rec.provenance.to_dict(), default=str),
+                        new_rec.rationale, new_rec.status,
+                        new_rec.created_at, new_rec.updated_at,
+                    ),
+                )
+            # Archive the shared original
             self.storage.execute(
-                "INSERT INTO c31_knowledge(id, scope, owner_project_id, key, "
-                "content, tags, version_req, confidence, provenance_json, "
-                "rationale, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                (
-                    new_rec.id, new_rec.scope.value,
-                    new_rec.owner_project_id, new_rec.key,
-                    json.dumps(new_rec.content, default=str),
-                    json.dumps(new_rec.tags),
-                    json.dumps(new_rec.version_req),
-                    new_rec.confidence.value,
-                    json.dumps(new_rec.provenance.to_dict(), default=str),
-                    new_rec.rationale, new_rec.status,
-                    new_rec.created_at, new_rec.updated_at,
-                ),
+                "UPDATE c31_knowledge SET status='archived', updated_at=? "
+                "WHERE id=?;",
+                (now_iso(), rec.id),
             )
-        # Archive the shared original
-        self.storage.execute(
-            "UPDATE c31_knowledge SET status='archived', updated_at=? "
-            "WHERE id=?;",
-            (now_iso(), rec.id),
-        )
-        transition = PromotionRecord(
-            action=PromotionAction.REJECT,       # not a promotion
-            from_scope=KnowledgeScope.SHARED,
-            to_scope=KnowledgeScope.PROJECT,
-            owner_project_id=target_project_id, key=key,
-            actor=actor, rationale=rationale or "demotion",
-            policy_verdict="demote_to_project",
-        )
-        self._persist_transition(transition)
-        self._audit(
-            project_id=target_project_id, action="demote_to_project",
-            scope="shared", key=key, result_count=1,
-            detail=f"actor={actor}",
-        )
-        return transition
+            transition = PromotionRecord(
+                action=PromotionAction.REJECT,       # not a promotion
+                from_scope=KnowledgeScope.SHARED,
+                to_scope=KnowledgeScope.PROJECT,
+                owner_project_id=target_project_id, key=key,
+                actor=actor, rationale=rationale or "demotion",
+                policy_verdict="demote_to_project",
+            )
+            self._persist_transition(transition)
+            self._audit(
+                project_id=target_project_id, action="demote_to_project",
+                scope="shared", key=key, result_count=1,
+                detail=f"actor={actor}",
+            )
+            return transition
 
     def forget_shared(
         self, key: str, *, actor: str, rationale: str = "",
