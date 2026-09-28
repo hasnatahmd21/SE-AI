@@ -763,6 +763,53 @@ class KnowledgeFabricLoader:
         if terminal_quote_repaired is not None:
             candidates.append(terminal_quote_repaired)
 
+        # Some generated object records contain a stray closing array
+        # delimiter immediately after an object-valued string, e.g.
+        # "solution":"..."],"alternatives":[...]. Remove only a ] that is
+        # outside strings, while currently inside an object, and is immediately
+        # followed by a structural comma or object close. This cannot alter
+        # legitimate array contents because those have an array container on
+        # the stack.
+        delimiter_buf: list[str] = []
+        delimiter_stack: list[str] = []
+        delimiter_in_string = False
+        delimiter_escaped = False
+        delimiter_changed = False
+        for index, char in enumerate(line):
+            if delimiter_in_string:
+                delimiter_buf.append(char)
+                if delimiter_escaped:
+                    delimiter_escaped = False
+                elif char == "\\":
+                    delimiter_escaped = True
+                elif char == '"':
+                    delimiter_in_string = False
+                continue
+            if char == '"':
+                delimiter_buf.append(char)
+                delimiter_in_string = True
+                delimiter_escaped = False
+                continue
+            if char in "{[":
+                delimiter_stack.append(char)
+                delimiter_buf.append(char)
+                continue
+            if char == "]" and delimiter_stack and delimiter_stack[-1] == "{":
+                lookahead = index + 1
+                while lookahead < len(line) and line[lookahead].isspace():
+                    lookahead += 1
+                if lookahead < len(line) and line[lookahead] in ",}":
+                    delimiter_changed = True
+                    continue
+            if char in "}]":
+                expected = "{" if char == "}" else "["
+                if delimiter_stack and delimiter_stack[-1] == expected:
+                    delimiter_stack.pop()
+            delimiter_buf.append(char)
+        delimiter_repaired = "".join(delimiter_buf)
+        if delimiter_changed:
+            candidates.append(delimiter_repaired)
+
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
