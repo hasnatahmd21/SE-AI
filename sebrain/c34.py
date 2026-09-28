@@ -1321,6 +1321,13 @@ class KnowledgeFabricLoader:
         if ",}" in line:
             candidates.append(line.replace(",}", "}"))
 
+        # Some generated records contain an empty quoted property immediately
+        # before an object close. Remove only that malformed empty-key shape;
+        # accept it only after complete JSON validation.
+        empty_key_repaired = line.replace(',"}', '}')
+        if empty_key_repaired != line:
+            candidates.append(empty_key_repaired)
+
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
@@ -1455,11 +1462,45 @@ class KnowledgeFabricLoader:
                 line_end = text.find("\n", start)
                 if line_end < 0:
                     line_end = len(text)
+                # Code-aware records can span physical lines. Extend to
+                # the next record marker before attempting repair so embedded
+                # source_code/corrected_code strings are not truncated.
+                next_record = text.find('\n{"record_id":"', start + 1)
+                if next_record >= 0:
+                    line_end = next_record
                 candidate_line = text[start:line_end]
-                repaired = KnowledgeFabricLoader._repair_common_json_defects(
-                    candidate_line,
-                    error_pos=exc.pos - start,
-                )
+
+                repaired = None
+                direct_candidates: list[str] = []
+
+                # Real exports contain a small class of long records missing
+                # one terminal object delimiter. Keep this repair size-gated so
+                # deliberately malformed short fixtures remain errors.
+                if (
+                    len(candidate_line) >= 500
+                    and candidate_line.count("{") == candidate_line.count("}") + 1
+                ):
+                    direct_candidates.append(candidate_line + "}")
+
+                if ',"}' in candidate_line:
+                    direct_candidates.append(candidate_line.replace(',"}', '}'))
+
+                for direct_candidate in direct_candidates:
+                    try:
+                        direct_payload = json.loads(direct_candidate)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(direct_payload, dict) and (
+                        direct_payload.get("record_id") or direct_payload.get("id")
+                    ):
+                        repaired = direct_candidate
+                        break
+
+                if repaired is None:
+                    repaired = KnowledgeFabricLoader._repair_common_json_defects(
+                        candidate_line,
+                        error_pos=exc.pos - start,
+                    )
                 if repaired is not None:
                     try:
                         payload = json.loads(repaired)
