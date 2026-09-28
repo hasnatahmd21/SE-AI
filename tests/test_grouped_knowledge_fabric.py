@@ -197,3 +197,14 @@ def test_json_quote_repair_helper_recovers_embedded_code_quotes():
     assert payload["invalid_example"] == (
         "SELECT * FROM users WHERE name = '\" + \"USER_INPUT\" + \"'"
     )
+
+
+def test_json_quote_repair_preserves_compact_sql_concatenation():
+    line = (
+        '{"record_id":"D16-CONCAT-REG-003","dataset_id":"D16",'
+        '"invalid_example":"SELECT * FROM users WHERE id='"+user_input+"'"}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["invalid_example"] == 'SELECT * FROM users WHERE id='"+user_input+"''
