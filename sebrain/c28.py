@@ -1274,27 +1274,28 @@ class MetaRepository:
         if not project_id:
             raise ValidationError("project_id required")
         key = f"meta_assessment:{a.id}"
-        self.memory.create(
-            MemoryKind.PROJECT, key, a.to_dict(),
-            scope_type=MemoryScope.PROJECT, scope_id=project_id,
-            tags=["meta_reasoning", "c28", a.verdict.value],
-            provenance=a.provenance,
-        )
-        # STOP → record as failure memory so downstream learns
-        if a.verdict is MetaVerdict.STOP:
-            for c in a.blocking_checks():
-                self.memory.record_failure(
-                    f"meta_stop:{a.id}:{c.question.value}",
-                    what=f"meta stop: {c.question.value}",
-                    root_cause=c.rationale,
-                    fix=None,
-                    scope_id=project_id,
-                    provenance=a.provenance,
-                    confidence=Confidence.HIGH,
-                )
-        if self.ontology is None:
-            return key
-        ent = self.ontology.add(
+        with self.memory.storage.transaction():
+            self.memory.create(
+                MemoryKind.PROJECT, key, a.to_dict(),
+                scope_type=MemoryScope.PROJECT, scope_id=project_id,
+                tags=["meta_reasoning", "c28", a.verdict.value],
+                provenance=a.provenance,
+            )
+            # STOP → record as failure memory so downstream learns
+            if a.verdict is MetaVerdict.STOP:
+                for c in a.blocking_checks():
+                    self.memory.record_failure(
+                        f"meta_stop:{a.id}:{c.question.value}",
+                        what=f"meta stop: {c.question.value}",
+                        root_cause=c.rationale,
+                        fix=None,
+                        scope_id=project_id,
+                        provenance=a.provenance,
+                        confidence=Confidence.HIGH,
+                    )
+            if self.ontology is None:
+                return key
+            ent = self.ontology.add(
             EntityKind.VERIFICATION,
             _short(f"MetaAssessment {a.id[:8]} ({a.verdict.value})", 120),
             attributes={
