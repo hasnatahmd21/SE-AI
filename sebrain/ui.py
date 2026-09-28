@@ -40,7 +40,7 @@ def build_app(
             "SE BRAIN — KNOWLEDGE FABRIC",
             "",
             f"Total indexed records: {current['total_records']:,}",
-            f"Datasets present: {coverage['dataset_count']}/58",
+            f"Datasets present: {coverage['dataset_count']}/{len(coverage['expected'])}",
             f"Missing datasets: {', '.join(coverage['missing']) or 'None'}",
             "",
             "DATASETS",
@@ -103,7 +103,7 @@ def build_app(
                     + ", ".join(report["missing_dataset_ids"])
                 )
             else:
-                gr.Markdown("✅ D01–D58 dataset coverage is complete.")
+                gr.Markdown("✅ Intended dataset coverage is complete.")
 
             refresh = gr.Button("REFRESH STATS", variant="primary")
             stats_out = gr.Textbox(lines=34, buttons=["copy"])
