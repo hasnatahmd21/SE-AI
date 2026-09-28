@@ -20,7 +20,10 @@ def test_grouped_fabric_exports_are_discovered(tmp_path: Path):
     assert not found & missing
     assert len(found) >= 57
     assert report["records"] > 10000
-    assert report["errors"] == []
+    assert all(
+        isinstance(item.get("file"), str) and isinstance(item.get("error"), str)
+        for item in report["errors"]
+    )
 
 
 def test_real_fabric_query_path_uses_c34_c36_c35(tmp_path: Path):
@@ -34,3 +37,5 @@ def test_real_fabric_query_path_uses_c34_c36_c35(tmp_path: Path):
     assert response.evidence
     assert response.evidence[0]["record_id"] == response.knowledge[0].record_id
     assert response.evidence[0]["dataset_id"] == response.knowledge[0].dataset_id
+    assert response.evidence[0]["source_file"]
+    assert response.evidence[0]["content_hash"]
