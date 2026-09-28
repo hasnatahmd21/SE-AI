@@ -71,3 +71,22 @@ def test_grouped_knowledge_fabric_load_is_idempotent(tmp_path: Path):
         assert second["records"] == 0
         assert brain.fabric_stats()["total_records"] == 1
         assert brain.fabric_stats()["coverage"]["present"] == ["D58"]
+
+
+def test_jsonl_records_are_not_skipped(tmp_path: Path):
+    datasets = tmp_path / "datasets"
+    datasets.mkdir()
+    records = [
+        {"record_id": f"D58-TEST-{index:03d}", "dataset_id": "D58", "answer": f"answer {index}"}
+        for index in range(1, 4)
+    ]
+    (datasets / "D56 - D58").write_text(
+        "\n".join(json.dumps(record) for record in records),
+        encoding="utf-8",
+    )
+
+    with SEBrain(Config(data_dir=tmp_path / ".brain")) as brain:
+        report = brain.connect_knowledge_fabric(datasets)
+        assert report["errors"] == []
+        assert report["records"] == 3
+        assert brain.fabric_stats()["coverage"]["record_counts"] == {"D58": 3}
