@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sebrain.c01 import SQLiteStorage, ValidationError
+from sebrain.c01 import SQLiteStorage, ValidationError, TransactionError
 from sebrain.c02 import Ontology
 from sebrain.c04 import MemoryStore
 from sebrain.c27 import LearningReport, LearningRepository
@@ -24,7 +24,7 @@ def test_c27_repository_does_not_swallow_ontology_link_failure():
         ontology.link = broken_link
         try:
             repo.save(report, project_id="p1")
-        except ValidationError as exc:
+        except TransactionError as exc:
             assert "synthetic ontology link failure" in str(exc)
         else:
             raise AssertionError("ontology persistence failure was swallowed")
