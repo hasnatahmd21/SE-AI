@@ -723,12 +723,51 @@ class KnowledgeFabricLoader:
         return None
 
     @staticmethod
-    def _repair_common_json_defects(line: str) -> str | None:
+    def _repair_common_json_defects(line: str, error_pos: int | None = None) -> str | None:
         """Apply only narrowly scoped, deterministic export repairs."""
         if not line.lstrip().startswith("{") or '"record_id"' not in line:
             return None
 
         candidates: list[str] = []
+
+        # When the JSON decoder identifies the exact failure offset,
+        # prefer a minimal local repair around that offset. This is important
+        # for embedded source-code strings where a quote can be syntactically
+        # ambiguous without decoder context. Every candidate is still accepted
+        # only after complete JSON parsing and record-shape validation.
+        if error_pos is not None and 0 <= error_pos <= len(line):
+            local_indexes = {
+                error_pos - 2,
+                error_pos - 1,
+                error_pos,
+            }
+            for index in sorted(local_indexes):
+                if index < 0 or index >= len(line) or line[index] != '"':
+                    continue
+                candidate = line[:index] + '\\' + line[index:]
+                try:
+                    payload = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and (
+                    payload.get("record_id") or payload.get("id")
+                ):
+                    candidates.append(candidate)
+
+            for index in {error_pos, error_pos + 1}:
+                if index < 0 or index > len(line):
+                    continue
+                if index < len(line) and line[index] not in "}],":
+                    continue
+                candidate = line[:index] + '"' + line[index:]
+                try:
+                    payload = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and (
+                    payload.get("record_id") or payload.get("id")
+                ):
+                    candidates.append(candidate)
 
         # Some grouped exports wrap each JSON record in a single-quote
         # transport wrapper, producing lines such as
@@ -1110,7 +1149,8 @@ class KnowledgeFabricLoader:
                     line_end = len(text)
                 candidate_line = text[start:line_end]
                 repaired = KnowledgeFabricLoader._repair_common_json_defects(
-                    candidate_line
+                    candidate_line,
+                    error_pos=exc.pos - start,
                 )
                 if repaired is not None:
                     try:
