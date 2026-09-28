@@ -1,17 +1,16 @@
 """SE Brain local Knowledge Fabric UI.
 
-Run from the package root:
+Run:
     python -m sebrain.ui --datasets ./datasets
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
 import gradio as gr
 
-from .c01 import Config, SEBrainApp
-from .c34 import KnowledgeFabricLoader
-from .c35 import BrainDatasetBridge
+from . import Config, SEBrain
 
 
 def build_app(
@@ -19,20 +18,17 @@ def build_app(
     data_dir: str | Path = "./.sebrain_ui",
 ):
     config = Config(data_dir=Path(data_dir), log_level="WARNING")
-    brain = SEBrainApp(config=config)
+    brain = SEBrain(config=config)
     brain.start()
-
-    loader = KnowledgeFabricLoader(brain.storage, datasets_dir)
-    report = loader.load_all_datasets()
-    bridge = BrainDatasetBridge(brain=brain, loader=loader)
+    report = brain.connect_knowledge_fabric(datasets_dir)
 
     def analyze(task: str) -> str:
         if not (task or "").strip():
             return "Please enter a coding task."
-        return bridge.answer(task, top_k=5).to_english()
+        return brain.ask(task, top_k=5).to_english()
 
     def stats() -> str:
-        current = loader.stats()
+        current = brain.fabric_stats()
         coverage = current["coverage"]
         lines = [
             "SE BRAIN — KNOWLEDGE FABRIC",
@@ -123,6 +119,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args()
+
     demo, _ = build_app(args.datasets, args.data_dir)
     demo.launch(
         server_name=args.host,
