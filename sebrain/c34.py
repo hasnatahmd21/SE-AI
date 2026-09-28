@@ -817,7 +817,7 @@ class KnowledgeFabricLoader:
                 # export metadata/prose. A malformed candidate containing a
                 # record identity must remain an error because dropping it
                 # would hide a dataset record failure.
-                line_no = text.count("\\n", 0, start) + 1
+                line_no = text.count("\n", 0, start) + 1
                 if '"record_id"' in candidate_line or '"id"' in candidate_line:
                     errors.append({
                         "file": path.name,
