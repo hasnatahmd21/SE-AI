@@ -479,6 +479,66 @@ class KnowledgeFabricLoader:
         }
 
     @staticmethod
+    def _repair_unescaped_json_quotes(line: str) -> str | None:
+        """Repair only unescaped quotes occurring inside JSON string values.
+
+        Generated Knowledge Fabric records occasionally contain code or prose
+        with raw double quotes. This narrow repair preserves normal JSON
+        structure and is accepted only when the repaired line parses
+        successfully. No broader structural repair is attempted.
+        """
+        if not line.lstrip().startswith("{") or '"record_id"' not in line:
+            return None
+
+        chars: list[str] = []
+        in_string = False
+        escaped = False
+        changed = False
+
+        for index, char in enumerate(line):
+            if not in_string:
+                chars.append(char)
+                if char == '"':
+                    in_string = True
+                continue
+
+            if escaped:
+                chars.append(char)
+                escaped = False
+                continue
+
+            if char == "\\":
+                chars.append(char)
+                escaped = True
+                continue
+
+            if char == '"':
+                lookahead = index + 1
+                while lookahead < len(line) and line[lookahead].isspace():
+                    lookahead += 1
+                next_char = line[lookahead] if lookahead < len(line) else ""
+
+                if next_char in {":", ",", "}", "]", ""}:
+                    chars.append(char)
+                    in_string = False
+                else:
+                    chars.append('\\\\"')
+                    changed = True
+                continue
+
+            chars.append(char)
+
+        if not changed or in_string:
+            return None
+
+        repaired = "".join(chars)
+        try:
+            json.loads(repaired)
+        except json.JSONDecodeError:
+            return None
+        return repaired
+
+    @staticmethod
     def _parse_source(
         text: str, path: Path
     ) -> tuple[
@@ -504,7 +564,10 @@ class KnowledgeFabricLoader:
         cursor = 0
         line_index = 0
         skipped_lines = 0
+        ignored_metadata_fragments = 0
         invalid_json_lines = 0
+        repaired_records = 0
+        repaired_record_examples: list[dict[str, Any]] = []
 
         while line_index < len(lines):
             line = lines[line_index]
@@ -522,6 +585,46 @@ class KnowledgeFabricLoader:
             try:
                 payload, end = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
+                # A standalone object/array opener is commonly used by the
+                # dataset's human-readable batch ledgers. Those blocks are
+                # metadata, not Knowledge Fabric records; do not misclassify
+                # their nested lines as broken records.
+                if stripped.strip() in {"{", "["}:
+                    ignored_metadata_fragments += 1
+                    cursor += len(line)
+                    line_index += 1
+                    continue
+
+                if '"record_id"' in stripped:
+                    repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(
+                        stripped.rstrip("\r\n")
+                    )
+                    if repaired is not None:
+                        try:
+                            payload = json.loads(repaired)
+                        except json.JSONDecodeError:
+                            payload = None
+                        if payload is not None:
+                            document = KnowledgeFabricLoader._document_from_payload(
+                                payload, line_index + 1
+                            )
+                            if document is not None:
+                                documents.append(document)
+                                repaired_records += 1
+                                if len(repaired_record_examples) < 10:
+                                    repaired_record_examples.append({
+                                        "line": line_index + 1,
+                                        "record_id": str(
+                                            payload.get("record_id")
+                                            or payload.get("id")
+                                            or ""
+                                        ),
+                                        "reason": "unescaped_quote_inside_json_string",
+                                    })
+                                cursor += len(line)
+                                line_index += 1
+                                continue
+
                 invalid_json_lines += 1
                 cursor += len(line)
                 line_index += 1
@@ -533,16 +636,16 @@ class KnowledgeFabricLoader:
             if document is not None:
                 documents.append(document)
 
-            # raw_decode() returns the character offset immediately after the
-            # JSON value. Advance to the next physical line without skipping
-            # the line following a single-line JSON document. This matters for
-            # JSONL sources where every record is its own document.
             import bisect
             next_line = bisect.bisect_left(line_starts, end)
             if next_line <= line_index:
                 next_line = line_index + 1
             line_index = next_line
-            cursor = line_starts[line_index] if line_index < len(line_starts) else len(text)
+            cursor = (
+                line_starts[line_index]
+                if line_index < len(line_starts)
+                else len(text)
+            )
 
         if skipped_lines:
             warnings.append({
@@ -550,10 +653,23 @@ class KnowledgeFabricLoader:
                 "warning": "ignored non-JSON header/preamble lines",
                 "line_count": skipped_lines,
             })
+        if ignored_metadata_fragments:
+            warnings.append({
+                "file": path.name,
+                "warning": "ignored metadata/ledger object fragments that are not records",
+                "fragment_count": ignored_metadata_fragments,
+            })
+        if repaired_records:
+            warnings.append({
+                "file": path.name,
+                "warning": "repaired narrowly scoped JSON string quoting in records",
+                "record_count": repaired_records,
+                "examples": repaired_record_examples,
+            })
         if invalid_json_lines:
             errors.append({
                 "file": path.name,
-                "error": "invalid JSON document starting on one or more lines",
+                "error": "invalid JSON record/document that could not be safely repaired",
                 "line_count": invalid_json_lines,
             })
         if not documents:
@@ -563,8 +679,6 @@ class KnowledgeFabricLoader:
                 "error": "no dataset records/documents were parsed",
             })
 
-        # A valid source may contain only JSON documents plus explanatory
-        # header lines. JSON parse errors are still fatal for source readiness.
         return "json_document_stream", documents, warnings, errors
 
     @staticmethod
