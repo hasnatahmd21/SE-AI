@@ -607,8 +607,8 @@ class KnowledgeFabricLoader:
             # concatenation inside a JSON string, e.g. '" + "USER_INPUT" + "'.
             # Normalize only that exact structural artifact; preserve all other
             # text verbatim and then validate the resulting JSON.
-            start_marker = "'\\" + \""
-            end_marker = "\" + \"'"
+            start_marker = "'" + chr(34) + " + " + chr(34) + "'"
+            end_marker = chr(34) + " + " + chr(34) + "'"
             if start_marker in value:
                 left, remainder = value.split(start_marker, 1)
                 if end_marker in remainder:
