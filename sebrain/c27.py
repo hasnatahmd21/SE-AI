@@ -821,15 +821,15 @@ class LearningEngine:
     def _load_promoted_from_memory(self) -> dict[str, dict[str, Any]]:
         if self.memory is None:
             return {}
-        try:
-            entries = self.memory.find(
-                kind=MemoryKind.LONG_TERM,
-                status=None,  # include all statuses
-            )
-        except Exception:
-            return {}
+        entries = self.memory.find(
+            kind=MemoryKind.LONG_TERM,
+            status=None,
+        )
         out: dict[str, dict[str, Any]] = {}
         for e in entries:
+            # Archived knowledge must not participate in contradiction checks.
+            if e.status.value != "active":
+                continue
             out[e.key] = dict(e.content)
         return out
 
