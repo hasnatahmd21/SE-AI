@@ -106,7 +106,7 @@ def build_app(
                 gr.Markdown("✅ D01–D58 dataset coverage is complete.")
 
             refresh = gr.Button("REFRESH STATS", variant="primary")
-            stats_out = gr.Textbox(lines=34, show_copy_button=True)
+            stats_out = gr.Textbox(lines=34, buttons=["copy"])
             refresh.click(stats, outputs=stats_out)
 
     return demo, brain
