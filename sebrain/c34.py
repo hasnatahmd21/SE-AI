@@ -778,19 +778,6 @@ class KnowledgeFabricLoader:
                 ):
                     candidates.append(candidate)
 
-        # A decoder-position repair may fix one quote in a code string
-        # while leaving a paired raw quote in the same field. Feed each
-        # position-derived candidate through the existing context-aware quote
-        # state machine once more; acceptance still requires full JSON parsing.
-        for local_candidate in list(candidates):
-            if local_candidate == line:
-                continue
-            local_quote_repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(
-                local_candidate
-            )
-            if local_quote_repaired is not None:
-                candidates.append(local_quote_repaired)
-
         # Some grouped exports wrap each JSON record in a single-quote
         # transport wrapper, producing lines such as
         # '{"record_id":"...","answer":"..."}'.  The apostrophes are outside
@@ -1029,63 +1016,6 @@ class KnowledgeFabricLoader:
             ):
                 candidates.append(candidate)
 
-        # Some architecture trade-off exports omit the closing brace of
-        # option_b/option_a before the next top-level field. Repair only this
-        # explicit object-boundary shape and accept it only after full parsing.
-        for option_key in ("option_a", "option_b"):
-            option_marker = '"' + option_key + '":{'
-            next_field_marker = '","implementation_relevance"'
-            if option_marker in line and next_field_marker in line:
-                broken_boundary = '"' + next_field_marker[2:]
-                if '},"implementation_relevance"' not in line:
-                    candidate = line.replace(
-                        next_field_marker,
-                        '"},"implementation_relevance"',
-                        1,
-                    )
-                    try:
-                        payload = json.loads(candidate)
-                    except json.JSONDecodeError:
-                        payload = None
-                    if isinstance(payload, dict) and (
-                        payload.get("record_id") or payload.get("id")
-                    ):
-                        candidates.append(candidate)
-
-        # Code-bearing fields can contain many nested string literals. Try
-        # each plausible JSON field boundary rather than assuming the first
-        # comma-delimited quote is structural; accept only a candidate that
-        # parses completely and retains a record identity.
-        code_field_names = (
-            "source_code", "correct_code", "incorrect_code", "corrected_code",
-            "corrected_implementation", "incorrect_implementation", "test_code",
-            "test_input", "source", "code", "example", "invalid_example",
-        )
-        for key in code_field_names:
-            marker = '"' + key + '":"'
-            key_start = line.find(marker)
-            while key_start >= 0:
-                value_start = key_start + len(marker)
-                boundary = line.find('","', value_start)
-                while boundary >= 0:
-                    value = line[value_start:boundary]
-                    if '"' in value:
-                        candidate = (
-                            line[:value_start]
-                            + value.replace('"', '\\\"')
-                            + line[boundary:]
-                        )
-                        try:
-                            payload = json.loads(candidate)
-                        except json.JSONDecodeError:
-                            payload = None
-                        if isinstance(payload, dict) and (
-                            payload.get("record_id") or payload.get("id")
-                        ) and key in payload:
-                            candidates.append(candidate)
-                    boundary = line.find('","', boundary + 3)
-                key_start = line.find(marker, key_start + len(marker))
-
         # Conservative recovery for a malformed final string field whose
         # value contains raw double quotes (common in exported code examples).
         field_marker = '":"'
@@ -1164,17 +1094,6 @@ class KnowledgeFabricLoader:
             if token_index >= 0:
                 concat_field_start = line.rfind(field_marker, 0, token_index)
                 if concat_field_start >= 0:
-                    concat_key_matches = list(
-                        re.finditer(
-                            r'"([A-Za-z_][A-Za-z0-9_]*)":"',
-                            line[:token_index + 1],
-                        )
-                    )
-                    concat_field_name = (
-                        concat_key_matches[-1].group(1)
-                        if concat_key_matches
-                        else ""
-                    )
                     concat_value_start = concat_field_start + len(field_marker)
                     concat_field_end = line.find('","', token_index)
                     if concat_field_end < 0:
@@ -1186,108 +1105,17 @@ class KnowledgeFabricLoader:
                         if '"' in concat_value:
                             concat_candidate = (
                                 line[:concat_value_start]
-                                + concat_value.replace('"', '\\"')
+                                + concat_value.replace('"', '\\\"')
                                 + line[concat_field_end:]
                             )
                             try:
                                 payload = json.loads(concat_candidate)
                             except json.JSONDecodeError:
                                 payload = None
-                            if (
-                                isinstance(payload, dict)
-                                and (payload.get("record_id") or payload.get("id"))
-                                and concat_field_name in payload
+                            if isinstance(payload, dict) and (
+                                payload.get("record_id") or payload.get("id")
                             ):
-                                candidates.insert(0, concat_candidate)
-
-        # Recover raw double quotes inside string-valued code examples without
-        # re-escaping already-valid JSON escapes. Real parser failures provide
-        # error_pos, so first repair only the containing field; direct helper
-        # callers use a bounded field scan as a fallback.
-        field_key_re = re.compile(r'"([A-Za-z_][A-Za-z0-9_]*)":"')
-        field_boundary_re = re.compile(r'","[A-Za-z_][A-Za-z0-9_]*":')
-
-        def escape_unescaped_quotes(value: str) -> tuple[str, bool]:
-            output: list[str] = []
-            changed = False
-            for index, char in enumerate(value):
-                if char != '"':
-                    output.append(char)
-                    continue
-                backslashes = 0
-                cursor = index - 1
-                while cursor >= 0 and value[cursor] == "\\":
-                    backslashes += 1
-                    cursor -= 1
-                if backslashes % 2 == 0:
-                    output.append('\\"')
-                    changed = True
-                else:
-                    output.append(char)
-            return "".join(output), changed
-
-        def add_field_candidate(
-            field_name: str,
-            value_start: int,
-            value_end: int,
-        ) -> None:
-            if value_end <= value_start:
-                return
-            value = line[value_start:value_end]
-            repaired_value, changed = escape_unescaped_quotes(value)
-            if not changed:
-                return
-            field_candidate = (
-                line[:value_start]
-                + repaired_value
-                + line[value_end:]
-            )
-            try:
-                payload = json.loads(field_candidate)
-            except json.JSONDecodeError:
-                return
-            if isinstance(payload, dict) and (
-                payload.get("record_id") or payload.get("id")
-            ) and field_name in payload:
-                candidates.insert(0, field_candidate)
-
-        if error_pos is not None and 0 <= error_pos < len(line):
-            matches = list(field_key_re.finditer(line, 0, error_pos + 1))
-            if matches:
-                field_match = matches[-1]
-                value_start = field_match.end()
-                boundary_match = field_boundary_re.search(line, error_pos)
-                if boundary_match is not None:
-                    add_field_candidate(
-                        field_match.group(1),
-                        value_start,
-                        boundary_match.start(),
-                    )
-                terminal_position = line.rfind('"}')
-                if terminal_position >= value_start:
-                    add_field_candidate(
-                        field_match.group(1),
-                        value_start,
-                        terminal_position,
-                    )
-        else:
-            field_matches = list(field_key_re.finditer(line))
-            for field_match in field_matches:
-                value_start = field_match.end()
-                boundary_match = field_boundary_re.search(line, value_start)
-                if boundary_match is not None:
-                    add_field_candidate(
-                        field_match.group(1),
-                        value_start,
-                        boundary_match.start(),
-                    )
-                terminal_position = line.rfind('"}')
-                if terminal_position >= value_start:
-                    add_field_candidate(
-                        field_match.group(1),
-                        value_start,
-                        terminal_position,
-                    )
+                                candidates.append(concat_candidate)
 
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
@@ -1314,6 +1142,13 @@ class KnowledgeFabricLoader:
         if ",}" in line:
             candidates.append(line.replace(",}", "}"))
 
+        # Some generated records contain an empty quoted property immediately
+        # before an object close (\`,"}\`). Remove only that malformed empty
+        # key shape; the candidate is accepted only after full JSON validation.
+        empty_key_repaired = line.replace(',"}', '}')
+        if empty_key_repaired != line:
+            candidates.append(empty_key_repaired)
+
         if ",]" in line:
             candidates.append(line.replace(",]", "]"))
 
@@ -1328,6 +1163,74 @@ class KnowledgeFabricLoader:
         )
         if missing_colon != line:
             candidates.append(missing_colon)
+
+        # Recover a missing array close before a property key when the
+        # decoder points at that key's colon. This is conservative because the
+        # candidate is accepted only after complete JSON parsing and record
+        # shape validation.
+        if error_pos is not None and 0 < error_pos < len(line):
+            if line[error_pos] == ":" and line[error_pos - 1] == '"':
+                key_start = line.rfind(',"', 0, error_pos)
+                if key_start >= 0:
+                    array_close_candidate = line[:key_start] + "]" + line[key_start:]
+                    candidates.append(array_close_candidate)
+
+        # If the record has a structurally unclosed object/array but no open
+        # string remains, try the exact missing terminal delimiters in reverse
+        # stack order. Full JSON parsing remains the acceptance gate.
+        structural_stack: list[str] = []
+        structural_in_string = False
+        structural_escaped = False
+        structural_mismatch = False
+        for char in line:
+            if structural_in_string:
+                if structural_escaped:
+                    structural_escaped = False
+                elif char == "\\":
+                    structural_escaped = True
+                elif char == '"':
+                    structural_in_string = False
+                continue
+            if char == '"':
+                structural_in_string = True
+            elif char in "{[":
+                structural_stack.append(char)
+            elif char in "}]":"[:2]:
+                expected = "{" if char == "}" else "["
+                if structural_stack and structural_stack[-1] == expected:
+                    structural_stack.pop()
+                else:
+                    structural_mismatch = True
+                    break
+        has_concat_syntax = any(
+            marker in line for marker in ('" + ', ' + "', '"+', '+"')
+        )
+        if (
+            not structural_in_string
+            and structural_stack
+            and not structural_mismatch
+            and not has_concat_syntax
+        ):
+            closing = "".join("}" if char == "{" else "]" for char in reversed(structural_stack))
+            structural_candidate = line + closing
+            try:
+                structural_payload = json.loads(structural_candidate)
+            except json.JSONDecodeError:
+                structural_payload = None
+            if isinstance(structural_payload, dict) and (
+                structural_payload.get("record_id") or structural_payload.get("id")
+            ):
+                content_keys = (
+                    "topic", "concept", "question", "answer", "objective",
+                    "explanation", "title", "source_code", "corrected_code",
+                    "invalid_example", "requirements", "rule", "solution",
+                )
+                source_has_content = any(f'"{key}"' in line for key in content_keys)
+                candidate_has_content = any(
+                    structural_payload.get(key) is not None for key in content_keys
+                )
+                if not source_has_content or candidate_has_content:
+                    candidates.append(structural_candidate)
 
         # Embedded code examples sometimes contain an intentionally malformed
         # JSON string such as: SQL ... '" + "USER_INPUT" + "'.  When the
@@ -1358,7 +1261,9 @@ class KnowledgeFabricLoader:
         # must still parse as a record before it can be accepted.
         expression_repaired = (
             line.replace('" +', '\\" +')
+            .replace('"+', '\\"+')
             .replace('+ "', '+ \\"')
+            .replace('+"', '+\\"')
         )
         if expression_repaired != line:
             try:
@@ -1378,15 +1283,32 @@ class KnowledgeFabricLoader:
                 candidates.append(quote_repaired.replace(',"]', ']'))
             if ",}" in quote_repaired:
                 candidates.append(quote_repaired.replace(",}", "}"))
+        contract_keys = (
+            "record_id", "dataset_id", "batch_id", "dataset", "batch",
+            "topic", "subtopic", "concept", "knowledge_type", "question",
+            "answer", "explanation", "objective", "requirements", "constraints",
+            "inputs", "outputs", "source_code", "correct_code", "corrected_code",
+            "incorrect_code", "invalid_example", "problem", "failure_mode",
+            "root_cause", "cause", "solution", "alternative", "tradeoff", "rule",
+            "verification", "verification_guidance", "verification_method",
+            "provenance", "relationships", "execution_status", "validation_status",
+            "title", "decision_question", "option_a", "option_b", "decision_factors",
+            "expected_behavior", "testing", "testing_guidance",
+        )
+        expected_keys = {key for key in contract_keys if f'"{key}"' in line}
+
         for candidate in candidates:
             try:
                 payload = json.loads(candidate)
             except json.JSONDecodeError:
                 continue
-            if isinstance(payload, dict) and (
+            if not isinstance(payload, dict) or not (
                 payload.get("record_id") or payload.get("id")
             ):
-                return candidate
+                continue
+            if any(key not in payload for key in expected_keys):
+                continue
+            return candidate
 
         return None
 
@@ -1444,6 +1366,14 @@ class KnowledgeFabricLoader:
                 line_end = text.find("\n", start)
                 if line_end < 0:
                     line_end = len(text)
+
+                # Some code-aware records span physical lines inside JSON
+                # string values. Repair the complete record instead of
+                # truncating at its first newline. Grouped exports use a
+                # record_id-prefixed object marker as the next record boundary.
+                next_record = text.find('\\n{"record_id":"', start + 1)
+                if next_record >= 0:
+                    line_end = next_record
                 candidate_line = text[start:line_end]
                 repaired = KnowledgeFabricLoader._repair_common_json_defects(
                     candidate_line,
