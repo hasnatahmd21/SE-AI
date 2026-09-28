@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 
 from sebrain import Config, SEBrain
+from sebrain.c34 import KnowledgeFabricLoader
 
 
 def test_grouped_knowledge_fabric_source_is_supported(tmp_path: Path):
@@ -150,3 +151,17 @@ D26 final-range note.
         response = brain.ask("parser first", top_k=1)
         assert response.knowledge
 
+
+
+def test_json_quote_repair_helper_recovers_embedded_code_quotes():
+    line = (
+        '{"record_id":"D58-HELPER-001","dataset_id":"D58",'
+        '"invalid_example":"SELECT * FROM users WHERE name = \'" + "USER_INPUT" + "\'"}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["record_id"] == "D58-HELPER-001"
+    assert payload["invalid_example"] == (
+        "SELECT * FROM users WHERE name = '" + "USER_INPUT" + "'"
+    )
