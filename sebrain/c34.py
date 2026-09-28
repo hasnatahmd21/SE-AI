@@ -547,6 +547,14 @@ class KnowledgeFabricLoader:
         list[dict[str, Any]],
         list[dict[str, Any]],
     ]:
+        """Parse grouped Knowledge Fabric exports.
+
+        Dataset files are intentionally human-readable exports: explanatory
+        prose/markdown may surround JSON records. The parser therefore scans
+        the entire byte/text stream for complete JSON values instead of
+        assuming every JSON value begins at a physical line boundary.
+        """
+
         if not text.strip():
             return "empty", [], [], []
 
@@ -554,129 +562,61 @@ class KnowledgeFabricLoader:
         documents: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
         errors: list[dict[str, Any]] = []
-        lines = text.splitlines(keepends=True)
-        line_starts: list[int] = []
-        offset = 0
-        for line in lines:
-            line_starts.append(offset)
-            offset += len(line)
+        i = 0
+        json_values = 0
+        skipped_regions = 0
 
-        cursor = 0
-        line_index = 0
-        skipped_lines = 0
-        ignored_metadata_fragments = 0
-        invalid_json_lines = 0
-        repaired_records = 0
-        repaired_record_examples: list[dict[str, Any]] = []
+        while i < len(text):
+            # Find the next possible JSON value. This deliberately skips
+            # prose, headings, code fences, and other human-readable text.
+            next_obj = text.find("{", i)
+            next_arr = text.find("[", i)
+            candidates = [p for p in (next_obj, next_arr) if p >= 0]
+            if not candidates:
+                if text[i:].strip():
+                    skipped_regions += 1
+                break
 
-        while line_index < len(lines):
-            line = lines[line_index]
-            leading = len(line) - len(line.lstrip())
-            stripped = line[leading:]
-            start = cursor + leading
-
-            if not stripped.startswith(("{", "[")):
-                if stripped.strip():
-                    skipped_lines += 1
-                cursor += len(line)
-                line_index += 1
-                continue
+            start = min(candidates)
+            if text[i:start].strip():
+                skipped_regions += 1
 
             try:
                 payload, end = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
-                # A standalone object/array opener is commonly used by the
-                # dataset's human-readable batch ledgers. Those blocks are
-                # metadata, not Knowledge Fabric records; do not misclassify
-                # their nested lines as broken records.
-                if stripped.strip() in {"{", "["}:
-                    ignored_metadata_fragments += 1
-                    cursor += len(line)
-                    line_index += 1
-                    continue
-
-                if '"record_id"' in stripped:
-                    repaired = KnowledgeFabricLoader._repair_unescaped_json_quotes(
-                        stripped.rstrip("\r\n")
-                    )
-                    if repaired is not None:
-                        try:
-                            payload = json.loads(repaired)
-                        except json.JSONDecodeError:
-                            payload = None
-                        if payload is not None:
-                            document = KnowledgeFabricLoader._document_from_payload(
-                                payload, line_index + 1
-                            )
-                            if document is not None:
-                                documents.append(document)
-                                repaired_records += 1
-                                if len(repaired_record_examples) < 10:
-                                    repaired_record_examples.append({
-                                        "line": line_index + 1,
-                                        "record_id": str(
-                                            payload.get("record_id")
-                                            or payload.get("id")
-                                            or ""
-                                        ),
-                                        "reason": "unescaped_quote_inside_json_string",
-                                    })
-                                cursor += len(line)
-                                line_index += 1
-                                continue
-
-                invalid_json_lines += 1
-                cursor += len(line)
-                line_index += 1
+                # A brace in prose/code is not necessarily a JSON document.
+                # Advance one character so a later real JSON value can still
+                # be discovered. Limit diagnostics to avoid huge reports.
+                i = start + 1
                 continue
 
+            json_values += 1
+            line_no = text.count("\n", 0, start) + 1
             document = KnowledgeFabricLoader._document_from_payload(
-                payload, line_index + 1
+                payload, line_no
             )
             if document is not None:
                 documents.append(document)
+            i = end
 
-            import bisect
-            next_line = bisect.bisect_left(line_starts, end)
-            if next_line <= line_index:
-                next_line = line_index + 1
-            line_index = next_line
-            cursor = (
-                line_starts[line_index]
-                if line_index < len(line_starts)
-                else len(text)
-            )
+        if skipped_regions:
+            warnings.append({
+                "file": path.name,
+                "warning": "ignored non-JSON explanatory/header regions",
+                "region_count": skipped_regions,
+            })
 
-        if skipped_lines:
-            warnings.append({
-                "file": path.name,
-                "warning": "ignored non-JSON header/preamble lines",
-                "line_count": skipped_lines,
-            })
-        if ignored_metadata_fragments:
-            warnings.append({
-                "file": path.name,
-                "warning": "ignored metadata/ledger object fragments that are not records",
-                "fragment_count": ignored_metadata_fragments,
-            })
-        if repaired_records:
-            warnings.append({
-                "file": path.name,
-                "warning": "repaired narrowly scoped JSON string quoting in records",
-                "record_count": repaired_records,
-                "examples": repaired_record_examples,
-            })
-        if invalid_json_lines:
-            errors.append({
-                "file": path.name,
-                "error": "invalid JSON record/document that could not be safely repaired",
-                "line_count": invalid_json_lines,
-            })
-        if not documents:
+        if json_values == 0:
             errors.append({
                 "file": path.name,
                 "line": 1,
-                "error": "no dataset records/documents were parsed",
+                "error": "no JSON dataset records/documents were found",
+            })
+        elif not documents:
+            errors.append({
+                "file": path.name,
+                "line": 1,
+                "error": "JSON values were found but none contained dataset records",
             })
 
         return "json_document_stream", documents, warnings, errors
