@@ -976,9 +976,7 @@ class LearningRepository:
         if not project_id:
             raise ValidationError("project_id required")
         key = f"learning_report:{report.id}"
-        # The report memory entry and all ontology nodes/links form one
-        # persistence unit. If ontology persistence fails, the report must
-        # not remain partially committed in memory.
+        # Report memory and ontology graph form one persistence unit.
         with self.memory.storage.transaction():
             self.memory.create(
                 MemoryKind.PROJECT, key, report.to_dict(),
@@ -989,40 +987,42 @@ class LearningRepository:
             if self.ontology is None:
                 return key
             root = self.ontology.add(
-            EntityKind.EXPERIENCE,
-            _short(
-                f"Learning {report.id[:8]} "
-                f"(promoted={len(report.promoted_ids)})", 120,
-            ),
-            attributes={
-                "report_id": report.id,
-                "project_id": project_id,
-                "experiences_seen": report.experiences_seen,
-                "clusters": report.clusters,
-                "promoted": len(report.promoted_ids),
-                "held": len(report.held_ids),
-                "rejected": len(report.rejected_ids),
-            },
-            tags=["learning-report"],
-            provenance=report.provenance,
-        )
-        for cand in report.candidates:
-            ce = self.ontology.add(
                 EntityKind.EXPERIENCE,
-                _short(f"knowledge[{cand.tier.value}]: "
-                       f"{_short(cand.problem_pattern, 60)}", 120),
+                _short(
+                    f"Learning {report.id[:8]} "
+                    f"(promoted={len(report.promoted_ids)})", 120,
+                ),
                 attributes={
-                    "candidate_id": cand.id,
-                    "tier": cand.tier.value,
-                    "evidence_strength": cand.evidence_strength.value,
-                    "confidence_score": cand.confidence_score,
-                    "supporting_ids": list(cand.supporting_ids),
+                    "report_id": report.id,
+                    "project_id": project_id,
+                    "experiences_seen": report.experiences_seen,
+                    "clusters": report.clusters,
+                    "promoted": len(report.promoted_ids),
+                    "held": len(report.held_ids),
+                    "rejected": len(report.rejected_ids),
                 },
-                tags=["knowledge-candidate", cand.tier.value],
-                provenance=cand.provenance,
+                tags=["learning-report"],
+                provenance=report.provenance,
             )
-            self.ontology.link(RelationKind.CONTAINS, root.id, ce.id)
-        return root.id
+            for cand in report.candidates:
+                ce = self.ontology.add(
+                    EntityKind.EXPERIENCE,
+                    _short(
+                        f"knowledge[{cand.tier.value}]: "
+                        f"{_short(cand.problem_pattern, 60)}", 120
+                    ),
+                    attributes={
+                        "candidate_id": cand.id,
+                        "tier": cand.tier.value,
+                        "evidence_strength": cand.evidence_strength.value,
+                        "confidence_score": cand.confidence_score,
+                        "supporting_ids": list(cand.supporting_ids),
+                    },
+                    tags=["knowledge-candidate", cand.tier.value],
+                    provenance=cand.provenance,
+                )
+                self.ontology.link(RelationKind.CONTAINS, root.id, ce.id)
+            return root.id
 
     def load(self, report_id: str, *, project_id: str) -> dict[str, Any] | None:
         e = self.memory.get_current(
