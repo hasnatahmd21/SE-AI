@@ -633,7 +633,8 @@ class KnowledgeFabricLoader:
                 and boundary_char in {"", ",", "]", "}"}
             )
             closes = (
-                next_char in {":", ""}
+                (string_is_key and next_char == ":")
+                or (not string_is_key and next_char == "")
                 or closes_container
                 or closes_array
                 or (next_char == "," and comma_is_structural(next_index))
