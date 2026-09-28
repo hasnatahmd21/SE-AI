@@ -98,3 +98,18 @@ def test_json_quote_repair_handles_compact_variable_concatenation():
     assert payload["invalid_example"] == (
         'SELECT * FROM users WHERE user_id = \'"+user_input+"\''
     )
+
+def test_json_quote_repair_handles_embedded_go_code_quotes():
+    line = (
+        '{"record_id":"D32-CODE-QUOTE-001","dataset_id":"D32",'
+        '"source_code":"db, err := sql.Open("driver-name", dsn)\\n'
+        'if err != nil { return err }\\n'
+        'if u.Scheme != "https" { return errors.New("unsupported scheme") }",'
+        '"validation_status":"STRUCTURALLY_VALIDATED"}'
+    )
+    repaired = KnowledgeFabricLoader._repair_common_json_defects(line)
+    assert repaired is not None
+    payload = json.loads(repaired)
+    assert payload["record_id"] == "D32-CODE-QUOTE-001"
+    assert 'sql.Open("driver-name", dsn)' in payload["source_code"]
+    assert 'errors.New("unsupported scheme")' in payload["source_code"]
