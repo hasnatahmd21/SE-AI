@@ -1133,6 +1133,18 @@ class CrossLanguageReasoner:
         lines = source.splitlines()
         for rule_concept, pattern, construct in _rules_for(language):
             for i, line in enumerate(lines, 1):
+                # Never classify a comment-only line as executable source.
+                # Inline strings/comments remain a documented regex limitation.
+                stripped = line.lstrip()
+                if (
+                    (language is LanguageId.PYTHON and stripped.startswith("#"))
+                    or (language in (LanguageId.JAVASCRIPT, LanguageId.TYPESCRIPT,
+                                     LanguageId.JAVA, LanguageId.CPP, LanguageId.GO)
+                        and stripped.startswith("//"))
+                    or (language is LanguageId.RUST and stripped.startswith("//"))
+                    or (language is LanguageId.C and stripped.startswith("//"))
+                ):
+                    continue
                 if pattern.search(line):
                     out.append(Detection(
                         concept=rule_concept, line=i,
