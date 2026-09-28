@@ -5,9 +5,9 @@ Top-level package
 ================================================================================
 
 This package is the repaired, de-duplicated, properly-modularized version of
-the original single-file `SE_brain_.py` dump. It contains 33 engines
-(c01 .. c33, skipping no numbers except that the historical "C20" name is
-used once — see CHANGES.md for why) each in its own file/namespace:
+the original single-file `SE_brain_.py` dump. It contains 36 engines
+(c01 .. c36, with C34–C36 forming the Knowledge Fabric layer) each in its own
+file/namespace:
 
     c01  Core Foundation              c18  Test Execution Engine
     c02  Software Ontology Engine     c19  Debugging Engine
@@ -48,7 +48,7 @@ This file additionally provides `SEBrain`, a small orchestrator that starts
 the shared storage/lifecycle (C01), wires up the shared Ontology (C02) and
 MemoryStore (C04) that most other engines are designed to read/write
 through, and exposes `ingest_dataset()` so external knowledge can be
-attached to the brain before you hand it a task. Wiring the 33 engines'
+attached to the brain before you hand it a task. Wiring the 36 engines'
 *business logic* together beyond that is intentionally left to the caller:
 each engine has its own "Depends on C.." list in its module docstring, and
 composing them (e.g. Planning -> Code Synthesis -> Test Generation -> Test
