@@ -1,6 +1,6 @@
 # Knowledge Fabric Datasets
 
-The repository export stores the D01–D58 Knowledge Fabric in grouped source
+The repository export stores the intended Knowledge Fabric in grouped source
 files:
 
 - `D1 - D5`
@@ -36,5 +36,5 @@ Run the real repository validation with:
 python scripts/validate_knowledge_fabric.py
 ```
 
-The validator requires all expected D01–D58 dataset IDs to be discoverable and
+The validator requires all intended dataset IDs to be discoverable and
 requires zero loader errors. It does not impose a fixed record-count target.
