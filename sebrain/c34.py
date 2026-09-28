@@ -1050,6 +1050,34 @@ class KnowledgeFabricLoader:
                     ):
                         candidates.append(expression_candidate)
 
+        # Also preserve variable-based concatenation expressions such as
+        # \\" + user_input + \\". Restrict the repair to the containing field
+        # and require valid JSON so ordinary prose containing '+' is untouched.
+        if " + " in line:
+            plus_index = line.find(" + ")
+            plus_field_start = line.rfind(field_marker, 0, plus_index)
+            if plus_field_start >= 0:
+                plus_value_start = plus_field_start + len(field_marker)
+                plus_field_end = line.find('","', plus_index)
+                if plus_field_end < 0:
+                    plus_field_end = line.rfind('"}')
+                if plus_field_end > plus_value_start:
+                    plus_value = line[plus_value_start:plus_field_end]
+                    if plus_value.count('"') >= 2:
+                        plus_candidate = (
+                            line[:plus_value_start]
+                            + plus_value.replace('"', '\\\"')
+                            + line[plus_field_end:]
+                        )
+                        try:
+                            payload = json.loads(plus_candidate)
+                        except json.JSONDecodeError:
+                            payload = None
+                        if isinstance(payload, dict) and (
+                            payload.get("record_id") or payload.get("id")
+                        ):
+                            candidates.append(plus_candidate)
+
         value_end = line.rfind('"}')
         if field_start >= 0 and value_end > field_start + len(field_marker):
             value_start = field_start + len(field_marker)
