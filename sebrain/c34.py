@@ -1145,7 +1145,7 @@ class KnowledgeFabricLoader:
         # as SQL/Python snippets containing the literal token " + ". Escaping
         # only that exact token is deliberately narrow; the full candidate
         # must still parse as a record before it can be accepted.
-        expression_repaired = line.replace('" + "', '\\" + \\"')
+        expression_repaired = line.replace('" +', '\\" +').replace('+ "', '+ \\"')
         if expression_repaired != line:
             try:
                 payload = json.loads(expression_repaired)
