@@ -502,7 +502,7 @@ class KnowledgeFabricLoader:
                 char = line[i]
                 if escaped_token:
                     escaped_token = False
-                elif char == "\":
+                elif char == "\\":
                     escaped_token = True
                 elif char == '"':
                     return i
