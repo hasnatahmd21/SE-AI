@@ -707,12 +707,14 @@ class KnowledgeFabricLoader:
         # Accept this form only when removing the matching wrapper produces
         # valid record-shaped JSON.
         stripped_wrapper = line.strip()
-        if (
-            len(stripped_wrapper) >= 2
-            and stripped_wrapper.startswith("'")
-            and stripped_wrapper.endswith("'")
-        ):
-            wrapper_candidate = stripped_wrapper[1:-1]
+        if len(stripped_wrapper) >= 2 and stripped_wrapper.endswith("'"):
+            if stripped_wrapper.startswith("'"):
+                wrapper_candidate = stripped_wrapper[1:-1]
+            else:
+                # The grouped-source scanner intentionally begins at the
+                # first JSON {, so the leading transport apostrophe has
+                # already been skipped before this helper sees the line.
+                wrapper_candidate = stripped_wrapper[:-1]
             try:
                 payload = json.loads(wrapper_candidate)
             except json.JSONDecodeError:
