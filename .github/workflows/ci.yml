@@ -50,3 +50,7 @@ jobs:
 
       - name: Validate real intended Knowledge Fabric
         run: python scripts/validate_knowledge_fabric.py
+
+      - name: Validate training-data preparation
+        run: python scripts/prepare_training_data.py --output /tmp/sebrain-training.jsonl
+
