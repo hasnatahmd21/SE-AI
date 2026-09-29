@@ -49,7 +49,7 @@ class _CausalDataset:
         row=self.rows[idx]; text=f"### Instruction\n{row['instruction']}\n\n### Response\n{row['output']}"
         enc=self.tokenizer(text,truncation=True,max_length=self.max_length,padding=False); enc["labels"]=list(enc["input_ids"]); return enc
 
-def _collator(tokenizer):
+class _RegistryCallback:\n    def __init__(self, registry, run): self.registry,self.run=registry,run\n    def on_log(self, args, state, control, logs=None, **kwargs):\n        if logs: self.run.manifest["latest_metrics"]=dict(logs); self.registry.update(self.run,"TRAINING_RUNNING",step=state.global_step)\n    def on_save(self, args, state, control, **kwargs):\n        self.registry.update(self.run,"CHECKPOINT_SAVED",step=state.global_step)\n\ndef _collator(tokenizer):
     from transformers import DataCollatorForLanguageModeling
     return DataCollatorForLanguageModeling(tokenizer=tokenizer,mlm=False)
 
@@ -62,7 +62,7 @@ def _precision(cfg,torch):
 
 def datetime_run_id():
     from datetime import datetime,timezone
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + __import__("uuid").uuid4().hex[:8]
 
 def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dry_run: bool=False) -> dict[str,Any]:
     config.validate()
@@ -113,8 +113,8 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         val_rows=[r for r in records if r["split"]=="validation"]; val_ds=_CausalDataset(val_rows,tokenizer,config.max_seq_length) if val_rows else None
         fp16,bf16=_precision(config,torch)
         if val_ds and config.save_steps != config.eval_steps: raise TrainingDataError("save_steps and eval_steps must match when validation is enabled")
-        args=TrainingArguments(output_dir=str(run.root/"checkpoints"),num_train_epochs=config.epochs,max_steps=config.max_steps,learning_rate=config.learning_rate,warmup_ratio=config.warmup_ratio,per_device_train_batch_size=config.batch_size,per_device_eval_batch_size=config.batch_size,gradient_accumulation_steps=config.gradient_accumulation_steps,weight_decay=config.weight_decay,lr_scheduler_type=config.scheduler,optim=config.optimizer,logging_steps=config.logging_steps,eval_strategy="steps" if val_ds else "no",eval_steps=config.eval_steps,save_strategy="steps",save_steps=config.save_steps,save_total_limit=config.save_total_limit,load_best_model_at_end=bool(val_ds),metric_for_best_model="eval_loss" if val_ds else None,greater_is_better=False if val_ds else None,report_to=[],seed=config.seed,fp16=fp16,bf16=bf16,remove_unused_columns=False)
-        trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer))
+        args=TrainingArguments(output_dir=str(run.root/"checkpoints"),num_train_epochs=config.epochs,max_steps=config.max_steps,learning_rate=config.learning_rate,warmup_ratio=config.warmup_ratio,per_device_train_batch_size=config.batch_size,per_device_eval_batch_size=config.batch_size,gradient_accumulation_steps=config.gradient_accumulation_steps,weight_decay=config.weight_decay,lr_scheduler_type=config.scheduler,optim=config.optimizer,logging_steps=config.logging_steps,logging_dir=str(run.root/"logs"),eval_strategy="steps" if val_ds else "no",eval_steps=config.eval_steps,save_strategy="steps",save_steps=config.save_steps,save_total_limit=config.save_total_limit,load_best_model_at_end=bool(val_ds),metric_for_best_model="eval_loss" if val_ds else None,greater_is_better=False if val_ds else None,report_to=[],seed=config.seed,fp16=fp16,bf16=bf16,remove_unused_columns=False)
+        trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer),callbacks=[_RegistryCallback(registry,run)])
         resume_checkpoint=None
         if config.resume:
             checkpoints=sorted((run.root/"checkpoints").glob("checkpoint-*"),key=lambda p:int(p.name.rsplit("-",1)[-1]))
@@ -129,8 +129,8 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         registry.add_artifact(run,"adapter",adapter_dir); registry.add_artifact(run,"training_metrics",mp)
         for key,name in (("training_config","training_config.json"),("dataset_manifest","dataset_manifest.json"),("model_manifest","model_manifest.json"),("tokenizer_manifest","tokenizer_manifest.json"),("lora_config","lora_config.json")):
             registry.add_artifact(run,key,run.root/name)
-        if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")
-        run.manifest["results"]=metrics; run.manifest["best_checkpoint"]=getattr(trainer.state,"best_model_checkpoint",None)
+        if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")\n        if test_rows: registry.add_artifact(run,"test_metrics",run.root/"metrics"/"test_metrics.json")
+        run.manifest["results"]=metrics; run.manifest["checkpoint_state"]={"best":getattr(trainer.state,"best_model_checkpoint",None),"global_step":trainer.state.global_step}; run.manifest["best_checkpoint"]=getattr(trainer.state,"best_model_checkpoint",None)
         from datetime import datetime,timezone
         registry.update(run,"COMPLETED",end_time=datetime.now(timezone.utc).isoformat())
         return run.manifest
