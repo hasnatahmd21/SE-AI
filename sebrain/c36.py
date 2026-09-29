@@ -155,6 +155,7 @@ class RAGPipeline(_LexicalRAGPipeline):
         self._semantic_model_name = semantic_model_name
         self._semantic_model = None
         self._semantic_records = None
+        self._semantic_matrix = None
 
     @property
     def semantic_enabled(self) -> bool:
@@ -165,6 +166,7 @@ class RAGPipeline(_LexicalRAGPipeline):
         self._semantic_encoder = None
         self._semantic_model = None
         self._semantic_records = None
+        self._semantic_matrix = None
         if semantic_weight is not None:
             self.semantic_weight = max(0.0, min(1.0, float(semantic_weight)))
         if semantic_top_k is not None:
@@ -175,6 +177,7 @@ class RAGPipeline(_LexicalRAGPipeline):
         self._semantic_model_name = None
         self._semantic_model = None
         self._semantic_records = None
+        self._semantic_matrix = None
 
     def retrieve(self, query: str, *, top_k: int = 5, language: str | None = None, dataset_id: str | None = None, concept: str | None = None) -> RAGContext:
         if not self.semantic_enabled:
@@ -205,7 +208,14 @@ class RAGPipeline(_LexicalRAGPipeline):
         import numpy as np
         records = self._get_semantic_records()
         encode = self._get_semantic_encoder()
-        matrix = self._normalize(np.asarray(encode([self._record_text(r) for r in records]), dtype="float32"))
+        if self._semantic_matrix is None:
+            self._semantic_matrix = self._normalize(
+                np.asarray(
+                    encode([self._record_text(r) for r in records]),
+                    dtype="float32",
+                )
+            )
+        matrix = self._semantic_matrix
         q = self._normalize(np.asarray(encode([query]), dtype="float32"))[0]
         scored = []
         for similarity, record in zip(matrix @ q, records):
