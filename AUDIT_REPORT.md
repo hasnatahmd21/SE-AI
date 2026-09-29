@@ -49,3 +49,20 @@ The training architecture is implemented, but the current environment has not ex
 6. Only after those checks pass should Kaggle/training readiness be marked complete.
 
 No dataset records are fabricated to satisfy coverage or training-count targets.
+## Latest training-layer hardening pass — 2026-09-29
+
+The training layer was re-inspected and hardened after the initial implementation:
+
+- Training JSONL loading now re-checks execution/validation eligibility instead of trusting a standalone eligibility flag.
+- Eligible records must have valid train/validation/test split labels and valid JSON structure.
+- Transformers TrainingArguments strategy naming is handled across compatible API variants.
+- Automatic precision selects BF16 when supported and FP16 otherwise on CUDA when precision is set to auto.
+- Training manifests record tokenizer special-token IDs and vocabulary size.
+- Resume records the selected checkpoint in the run manifest.
+- Run IDs are constrained to a single safe directory name; path traversal is rejected.
+- Registered artifacts must remain inside the run directory and cannot silently be replaced by different content.
+- Run inspection can recompute and verify every registered artifact hash.
+- Kaggle automation refuses to start an expensive run while the example configuration still contains the placeholder base model.
+- Additional tests cover eligibility revalidation, malformed JSON, invalid splits, path traversal, artifact containment, and terminal run-state protection.
+
+These changes strengthen the repository implementation, but they do not substitute for execution in a real environment. A real GPU LoRA run, checkpoint/resume run, adapter reload, and working CI runner remain empirical gates.
