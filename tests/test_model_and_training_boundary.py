@@ -106,3 +106,34 @@ def test_training_export_preserves_validation_state_without_fabricating_readines
     assert by_id["D46-B21-R001"].validation_status == "REQUIRES_TARGET_DATABASE_VALIDATION"
     assert by_id["D46-B21-R001"].relationships[0]["target"] == "D46-B19-R001"
     assert by_id["D18-B01-R001"].training_eligible is True
+
+
+def test_training_export_requires_explicit_execution_and_validation_status():
+    from sebrain.c34 import FabricRecord
+
+    record = FabricRecord(
+        record_id="D01-status-001",
+        dataset_id="D01",
+        question="What is the invariant?",
+        answer="The invariant is preserved.",
+        raw={"validation_status": "VERIFIED"},
+    )
+    example = TrainingDatasetExporter().convert([record])[0]
+    assert example.training_eligible is False
+
+
+def test_training_export_rejects_planned_statuses():
+    from sebrain.c34 import FabricRecord
+
+    record = FabricRecord(
+        record_id="D01-status-002",
+        dataset_id="D01",
+        question="What is the planned result?",
+        answer="It should pass after implementation.",
+        raw={
+            "execution_status": "PLANNED",
+            "validation_status": "PLANNED",
+        },
+    )
+    example = TrainingDatasetExporter().convert([record])[0]
+    assert example.training_eligible is False
