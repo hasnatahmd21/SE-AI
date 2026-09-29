@@ -201,3 +201,6 @@ bash scripts/kaggle_train.sh
 
 This performs dependency installation, Knowledge Fabric validation, training-data preparation, a dry-run preflight, and then starts the configured LoRA/PEFT training run. Set SEBRAIN_TRAIN_CONFIG if using a different config. A real model must be configured before starting expensive training. Kaggle still requires execution of the notebook/script; repository upload alone cannot execute training.
 
+## Training readiness hardening
+
+Use `scripts/training_readiness.py` before an expensive run. The repository also provides `configs/training.smoke.json` for a small GPU smoke test, `scripts/validate_training_artifact.py` for loading the final adapter with its base model, and `scripts/package_training_artifact.py` for a portable archive with SHA-256 manifest. The Kaggle launcher performs these gates automatically and can optionally back up the adapter to a Hugging Face model repository when `HF_REPO_ID` and `HF_TOKEN` are provided as environment secrets. Generated training data, runs, and archives are excluded from Git.
