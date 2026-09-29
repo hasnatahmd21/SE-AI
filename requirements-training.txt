@@ -6,3 +6,4 @@ accelerate>=0.34
 safetensors>=0.4
 sentence-transformers>=3.0
 huggingface_hub>=0.24
+bitsandbytes>=0.43
