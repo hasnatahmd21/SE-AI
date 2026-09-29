@@ -65,6 +65,7 @@ class TrainingConfig:
         if self.train_ratio + self.validation_ratio >= 1: raise ValueError("train_ratio + validation_ratio must be < 1")
         if self.precision not in {"auto", "fp32", "fp16", "bf16"}: raise ValueError("invalid precision")
         if self.save_total_limit <= 0: raise ValueError("save_total_limit must be > 0")
+        if self.logging_steps <= 0 or self.eval_steps <= 0 or self.save_steps <= 0: raise ValueError("logging/eval/save steps must be > 0")
         self.lora.validate()
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
