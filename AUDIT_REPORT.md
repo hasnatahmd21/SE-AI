@@ -66,3 +66,9 @@ The training layer was re-inspected and hardened after the initial implementatio
 - Additional tests cover eligibility revalidation, malformed JSON, invalid splits, path traversal, artifact containment, and terminal run-state protection.
 
 These changes strengthen the repository implementation, but they do not substitute for execution in a real environment. A real GPU LoRA run, checkpoint/resume run, adapter reload, and working CI runner remain empirical gates.
+
+## Training-readiness hardening branch — 2026-09-29
+
+Added without changing the canonical C01–C36 architecture: a repository training-readiness gate, a small GPU smoke configuration, final adapter load validation, reproducible adapter packaging with SHA-256 manifest, generated-artifact Git exclusions, and optional Hugging Face model-artifact backup using environment-provided credentials. The Kaggle launcher now performs the readiness gate, dry-run preflight, real training, artifact packaging, artifact hash verification, and optional Hub upload.
+
+Empirical gates remain unchanged: a real GPU smoke run, checkpoint/resume run, adapter reload, and successful CI execution still require runtime environments. The latest GitHub Actions runs currently fail before workflow steps execute, so this branch does not claim a green CI result.
