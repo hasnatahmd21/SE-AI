@@ -205,20 +205,17 @@ class RAGPipeline(_LexicalRAGPipeline):
         return RAGContext(query=query, items=ranked[:top_k], retrieval_method="hybrid")
 
     def _semantic_search(self, query: str, *, language: str | None, dataset_id: str | None, concept: str | None):
-        import numpy as np
         records = self._get_semantic_records()
         encode = self._get_semantic_encoder()
         if self._semantic_matrix is None:
             self._semantic_matrix = self._normalize(
-                np.asarray(
-                    encode([self._record_text(r) for r in records]),
-                    dtype="float32",
-                )
+                encode([self._record_text(r) for r in records])
             )
         matrix = self._semantic_matrix
-        q = self._normalize(np.asarray(encode([query]), dtype="float32"))[0]
+        q = self._normalize(encode([query]))[0]
         scored = []
-        for similarity, record in zip(matrix @ q, records):
+        for vector, record in zip(matrix, records):
+            similarity = sum(a * b for a, b in zip(vector, q))
             if language and record.language.lower() != language.lower(): continue
             if dataset_id and record.dataset_id.upper() != dataset_id.upper(): continue
             if concept and record.concept.lower() != concept.lower(): continue
@@ -245,10 +242,17 @@ class RAGPipeline(_LexicalRAGPipeline):
 
     @staticmethod
     def _normalize(vectors):
-        import numpy as np
-        if vectors.ndim != 2: raise ValueError("semantic encoder must return a 2-D matrix")
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        return vectors / np.maximum(norms, 1e-12)
+        rows = [list(map(float, row)) for row in vectors]
+        if not rows or any(not row for row in rows):
+            raise ValueError("semantic encoder must return a non-empty 2-D matrix")
+        width = len(rows[0])
+        if any(len(row) != width for row in rows):
+            raise ValueError("semantic encoder returned inconsistent vector sizes")
+        normalized = []
+        for row in rows:
+            norm = sum(value * value for value in row) ** 0.5
+            normalized.append([value / max(norm, 1e-12) for value in row])
+        return normalized
 
     @staticmethod
     def _record_text(record: FabricRecord) -> str:
