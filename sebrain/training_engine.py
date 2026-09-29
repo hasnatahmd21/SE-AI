@@ -79,6 +79,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
     run_id=config.run_id or datetime_run_id()
     if config.resume:
         run=registry.load(run_id)
+        registry.update(run,"RESUMING",resume_requested=True)
         if run.manifest.get("status") == "COMPLETED": raise TrainingDataError(f"training run {run_id} is already completed; create a new run instead")
         if run.manifest.get("dataset",{}).get("source_sha256") != dataset_manifest["source_sha256"]: raise TrainingDataError("resume refused: dataset hash differs from original run")
         if run.manifest.get("config",{}).get("base_model") != config.base_model: raise TrainingDataError("resume refused: base model differs from original run")
@@ -87,7 +88,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
     (run.root/"training_config.json").write_text(json.dumps(config.to_dict(),indent=2,sort_keys=True),encoding="utf-8")
     (run.root/"dataset_manifest.json").write_text(json.dumps(dataset_manifest,indent=2,sort_keys=True),encoding="utf-8")
     if dry_run:
-        registry.update(run,"DRY_RUN_VALIDATED",hardware=runtime_hardware())
+        registry.update(run,"DRY_RUN_VALIDATED",hardware=runtime_hardware(),dry_run=True)
         return run.manifest
     torch,LoraConfig,TaskType,get_peft_model,AutoModelForCausalLM,AutoTokenizer,Trainer,TrainingArguments,TrainerCallback=_require_training_deps()
     if config.require_gpu and not torch.cuda.is_available():
