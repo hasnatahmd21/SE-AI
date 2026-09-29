@@ -49,7 +49,7 @@ class _CausalDataset:
         row=self.rows[idx]; text=f"### Instruction\n{row['instruction']}\n\n### Response\n{row['output']}"
         enc=self.tokenizer(text,truncation=True,max_length=self.max_length,padding=False); enc["labels"]=list(enc["input_ids"]); return enc
 
-class _RegistryCallback:\n    def __init__(self, registry, run): self.registry,self.run=registry,run\n    def on_log(self, args, state, control, logs=None, **kwargs):\n        if logs: self.run.manifest["latest_metrics"]=dict(logs); self.registry.update(self.run,"TRAINING_RUNNING",step=state.global_step)\n    def on_save(self, args, state, control, **kwargs):\n        self.registry.update(self.run,"CHECKPOINT_SAVED",step=state.global_step)\n\ndef _collator(tokenizer):
+def _collator(tokenizer):
     from transformers import DataCollatorForLanguageModeling
     return DataCollatorForLanguageModeling(tokenizer=tokenizer,mlm=False)
 
@@ -132,11 +132,11 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         evaluation=None
         if val_ds:
             evaluation=trainer.evaluate(); ep=run.root/"metrics"/"evaluation_metrics.json"; ep.write_text(json.dumps(evaluation,indent=2,default=str),encoding="utf-8"); run.manifest["evaluation"]=evaluation
-        adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)
+        adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)\n        if test_rows:\n            test_ds=_CausalDataset(test_rows,tokenizer,config.max_seq_length)\n            test_metrics=trainer.evaluate(eval_dataset=test_ds,metric_key_prefix="test")\n            tp=run.root/"metrics"/"test_metrics.json"; tp.write_text(json.dumps(test_metrics,indent=2,default=str),encoding="utf-8")\n            run.manifest["test_evaluation"]=test_metrics\n            registry.add_artifact(run,"test_metrics",tp)
         registry.add_artifact(run,"adapter",adapter_dir); registry.add_artifact(run,"training_metrics",mp)
         for key,name in (("training_config","training_config.json"),("dataset_manifest","dataset_manifest.json"),("model_manifest","model_manifest.json"),("tokenizer_manifest","tokenizer_manifest.json"),("lora_config","lora_config.json")):
             registry.add_artifact(run,key,run.root/name)
-        if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")\n        if test_rows: registry.add_artifact(run,"test_metrics",run.root/"metrics"/"test_metrics.json")
+        if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")
         run.manifest["results"]=metrics; run.manifest["checkpoint_state"]={"best":getattr(trainer.state,"best_model_checkpoint",None),"global_step":trainer.state.global_step}; run.manifest["best_checkpoint"]=getattr(trainer.state,"best_model_checkpoint",None)
         from datetime import datetime,timezone
         registry.update(run,"COMPLETED",end_time=datetime.now(timezone.utc).isoformat())
