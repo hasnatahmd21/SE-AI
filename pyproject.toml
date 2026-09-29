@@ -7,7 +7,7 @@ name = "sebrain"
 version = "0.1.0"
 description = "Autonomous Software Engineering Brain with local Knowledge Fabric retrieval"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.0","pydantic-settings>=2.0","structlog>=24.0","pytest>=8.0","gradio>=5.0"]
+dependencies = ["fastapi>=0.115","pydantic>=2.0","pydantic-settings>=2.0","structlog>=24.0","pytest>=8.0","gradio>=5.0"]
 
 [tool.setuptools]
 packages = ["sebrain"]
