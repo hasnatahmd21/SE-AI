@@ -8,6 +8,18 @@ build/
 dist/
 .sebrain/
 .sebrain_ui/
+.sebrain_validation/
+.sebrain_training/
 *.sqlite3
 *.db
-.sebrain_validation/
+
+# Generated training artifacts
+training/*.jsonl
+runs/
+artifacts/
+*.tar.gz
+
+# Local secrets / environment
+.env
+.env.*
+!.env.example
