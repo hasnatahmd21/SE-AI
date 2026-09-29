@@ -268,7 +268,7 @@ def train(
         registry.update(run, "DRY_RUN_VALIDATED", hardware=runtime_hardware(), dry_run=True)
         return run.manifest
 
-    torch, LoraConfig, TaskType, get_peft_model, AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling, Trainer, TrainingArguments, TrainerCallback = _require_training_deps()
+    torch, LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training, AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling, Trainer, TrainingArguments, TrainerCallback = _require_training_deps()
 
     if config.require_gpu and not torch.cuda.is_available():
         registry.update(run, "FAILED", failure_reason="GPU required but CUDA is unavailable")
