@@ -6,6 +6,7 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import gradio as gr
@@ -31,7 +32,8 @@ def build_app(
     def analyze(task: str) -> str:
         if not (task or "").strip():
             return "Please enter a coding task."
-        return brain.ask(task, top_k=5).to_english()
+        analysis = brain.analyze_engineering_task(task, top_k=5)
+        return json.dumps(analysis.to_dict(), indent=2, default=str)
 
     def stats() -> str:
         current = brain.fabric_stats()
