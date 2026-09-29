@@ -4,3 +4,4 @@ transformers>=4.45
 peft>=0.19.1
 accelerate>=0.34
 safetensors>=0.4
+sentence-transformers>=3.0
