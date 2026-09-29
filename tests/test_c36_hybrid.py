@@ -1,8 +1,6 @@
 from pathlib import Path
 import json
 
-import numpy as np
-
 from sebrain import Config, KnowledgeFabricLoader, RAGPipeline, SEBrain
 
 
@@ -18,7 +16,7 @@ def _fake_encoder(texts):
             vectors.append([0.0, 0.0, 1.0])
         else:
             vectors.append([0.05, 0.05, 0.05])
-    return np.asarray(vectors, dtype="float32")
+    return vectors
 
 
 def test_semantic_retrieval_can_rescue_no_keyword_overlap(tmp_path: Path):
