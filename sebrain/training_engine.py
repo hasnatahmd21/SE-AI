@@ -38,6 +38,8 @@ def load_eligible_examples(path: str | Path) -> tuple[list[dict],dict[str,Any]]:
     ids=[r["record_id"] for r in records]
     manifest={"source_path":str(p),"source_sha256":raw_hash,"eligible_count":len(records),"excluded_count":sum(excluded.values()),"exclusion_reasons":excluded,"split_counts":{k:len(v) for k,v in by_split.items()},"record_ids":ids}
     manifest["record_ids_sha256"]=hashlib.sha256("\n".join(ids).encode()).hexdigest()
+    manifest["split_hashes"]={s:hashlib.sha256("\n".join(r["record_id"] for r in by_split[s]).encode()).hexdigest() for s in ("train","validation","test")}
+    manifest["dataset_ids"]=sorted({str(r.get("dataset_id","")) for r in records if r.get("dataset_id")})
     return records,manifest
 
 class _CausalDataset:
@@ -67,8 +69,15 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
     records,dataset_manifest=load_eligible_examples(config.dataset_path)
     registry=registry or TrainingRunRegistry(config.output_dir)
     run_id=config.run_id or datetime_run_id()
-    if config.resume: run=registry.load(run_id)
-    else: run=registry.create(run_id,config.to_dict(),dataset_manifest,{"base_model":config.base_model,"revision":config.model_revision})
+    if config.resume:
+        run=registry.load(run_id)
+        if run.manifest.get("status") == "COMPLETED": raise TrainingDataError(f"training run {run_id} is already completed; create a new run instead")
+        if run.manifest.get("dataset",{}).get("source_sha256") != dataset_manifest["source_sha256"]: raise TrainingDataError("resume refused: dataset hash differs from original run")
+        if run.manifest.get("config",{}).get("base_model") != config.base_model: raise TrainingDataError("resume refused: base model differs from original run")
+    else:
+        run=registry.create(run_id,config.to_dict(),dataset_manifest,{"base_model":config.base_model,"revision":config.model_revision})
+    (run.root/"training_config.json").write_text(json.dumps(config.to_dict(),indent=2,sort_keys=True),encoding="utf-8")
+    (run.root/"dataset_manifest.json").write_text(json.dumps(dataset_manifest,indent=2,sort_keys=True),encoding="utf-8")
     if dry_run:
         registry.update(run,"DRY_RUN_VALIDATED",hardware=runtime_hardware())
         return run.manifest
@@ -82,6 +91,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
             if tokenizer.eos_token is None: raise TrainingDependencyError("tokenizer has neither pad_token nor eos_token")
             tokenizer.pad_token=tokenizer.eos_token
         model=AutoModelForCausalLM.from_pretrained(config.base_model,revision=config.model_revision)
+        run.manifest["model"].update({"name_or_path":getattr(getattr(model,"config",None),"_name_or_path",config.base_model),"architectures":list(getattr(getattr(model,"config",None),"architectures",[]) or [])})
         targets=list(config.lora.target_modules)
         if not targets:
             names={name.rsplit(".",1)[-1] for name,_ in model.named_modules()}
@@ -94,20 +104,31 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         if trainable<=0 or trainable>=total: raise TrainingDependencyError("LoRA did not produce a constrained trainable parameter set")
         run.manifest["model"].update({"trainable_parameters":trainable,"total_parameters":total,"trainable_percentage":100*trainable/total})
         run.manifest["lora"]={**config.to_dict()["lora"],"target_modules":targets}
-        run.manifest["tokenizer"]={"name":config.tokenizer_name,"revision":config.tokenizer_revision}
+        run.manifest["tokenizer"]={"name":config.tokenizer_name,"revision":config.tokenizer_revision,"class":type(tokenizer).__name__}
+        (run.root/"model_manifest.json").write_text(json.dumps(run.manifest["model"],indent=2,sort_keys=True,default=str),encoding="utf-8")
+        (run.root/"tokenizer_manifest.json").write_text(json.dumps(run.manifest["tokenizer"],indent=2,sort_keys=True,default=str),encoding="utf-8")
+        (run.root/"lora_config.json").write_text(json.dumps(run.manifest["lora"],indent=2,sort_keys=True,default=str),encoding="utf-8")
         registry.update(run,"TRAINING_STARTED")
         train_ds=_CausalDataset([r for r in records if r["split"]=="train"],tokenizer,config.max_seq_length)
         val_rows=[r for r in records if r["split"]=="validation"]; val_ds=_CausalDataset(val_rows,tokenizer,config.max_seq_length) if val_rows else None
         fp16,bf16=_precision(config,torch)
-        args=TrainingArguments(output_dir=str(run.root/"checkpoints"),num_train_epochs=config.epochs,max_steps=config.max_steps,learning_rate=config.learning_rate,warmup_ratio=config.warmup_ratio,per_device_train_batch_size=config.batch_size,per_device_eval_batch_size=config.batch_size,gradient_accumulation_steps=config.gradient_accumulation_steps,weight_decay=config.weight_decay,lr_scheduler_type=config.scheduler,optim=config.optimizer,logging_steps=config.logging_steps,eval_strategy="steps" if val_ds else "no",eval_steps=config.eval_steps,save_strategy="steps",save_steps=config.save_steps,save_total_limit=config.save_total_limit,report_to=[],seed=config.seed,fp16=fp16,bf16=bf16,remove_unused_columns=False)
+        if val_ds and config.save_steps != config.eval_steps: raise TrainingDataError("save_steps and eval_steps must match when validation is enabled")
+        args=TrainingArguments(output_dir=str(run.root/"checkpoints"),num_train_epochs=config.epochs,max_steps=config.max_steps,learning_rate=config.learning_rate,warmup_ratio=config.warmup_ratio,per_device_train_batch_size=config.batch_size,per_device_eval_batch_size=config.batch_size,gradient_accumulation_steps=config.gradient_accumulation_steps,weight_decay=config.weight_decay,lr_scheduler_type=config.scheduler,optim=config.optimizer,logging_steps=config.logging_steps,eval_strategy="steps" if val_ds else "no",eval_steps=config.eval_steps,save_strategy="steps",save_steps=config.save_steps,save_total_limit=config.save_total_limit,load_best_model_at_end=bool(val_ds),metric_for_best_model="eval_loss" if val_ds else None,greater_is_better=False if val_ds else None,report_to=[],seed=config.seed,fp16=fp16,bf16=bf16,remove_unused_columns=False)
         trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer))
-        result=trainer.train(resume_from_checkpoint=None)
+        resume_checkpoint=None
+        if config.resume:
+            checkpoints=sorted((run.root/"checkpoints").glob("checkpoint-*"),key=lambda p:int(p.name.rsplit("-",1)[-1]))
+            if not checkpoints: raise TrainingDataError("resume requested but no checkpoint exists")
+            resume_checkpoint=str(checkpoints[-1])
+        result=trainer.train(resume_from_checkpoint=resume_checkpoint)
         metrics=dict(result.metrics); mp=run.root/"metrics"/"training_metrics.json"; mp.write_text(json.dumps(metrics,indent=2,default=str),encoding="utf-8")
         evaluation=None
         if val_ds:
             evaluation=trainer.evaluate(); ep=run.root/"metrics"/"evaluation_metrics.json"; ep.write_text(json.dumps(evaluation,indent=2,default=str),encoding="utf-8"); run.manifest["evaluation"]=evaluation
         adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)
         registry.add_artifact(run,"adapter",adapter_dir); registry.add_artifact(run,"training_metrics",mp)
+        for key,name in (("training_config","training_config.json"),("dataset_manifest","dataset_manifest.json"),("model_manifest","model_manifest.json"),("tokenizer_manifest","tokenizer_manifest.json"),("lora_config","lora_config.json")):
+            registry.add_artifact(run,key,run.root/name)
         if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")
         run.manifest["results"]=metrics; run.manifest["best_checkpoint"]=getattr(trainer.state,"best_model_checkpoint",None)
         from datetime import datetime,timezone
