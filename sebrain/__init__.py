@@ -224,6 +224,15 @@ class SEBrain:
             concept=concept,
         )
 
+    def export_training_data(self, output_path: str | Path, *, batch_size: int = 500) -> dict[str, int]:
+        """Export canonical validated fabric records for later model training."""
+        if self.fabric is None:
+            raise NotInitializedError("Knowledge Fabric is not connected")
+        records = []
+        for batch in self.fabric.iterate_batches(batch_size=batch_size):
+            records.extend(batch)
+        return TrainingDatasetExporter().write_jsonl(records, output_path)
+
     def fabric_stats(self) -> dict[str, Any]:
         if self.fabric is None:
             raise NotInitializedError("Knowledge Fabric is not connected")
