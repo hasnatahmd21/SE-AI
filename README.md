@@ -199,5 +199,5 @@ After cloning the repository into a Kaggle environment:
 bash scripts/kaggle_train.sh
 ~~~
 
-This performs dependency installation, Knowledge Fabric validation, training-data preparation and a dry-run preflight. A real model must be configured before starting expensive training. Kaggle still requires execution of the notebook/script; repository upload alone cannot execute training.
+This performs dependency installation, Knowledge Fabric validation, training-data preparation, a dry-run preflight, and then starts the configured LoRA/PEFT training run. Set SEBRAIN_TRAIN_CONFIG if using a different config. A real model must be configured before starting expensive training. Kaggle still requires execution of the notebook/script; repository upload alone cannot execute training.
 
