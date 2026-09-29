@@ -34,7 +34,9 @@ intended grouped Knowledge Fabric source files (D26 intentionally unplanned)
 ```
 
 The Brain facade exposes this path through `connect_knowledge_fabric()`,
-`ask()`, `fabric_stats()`, and `knowledge_catalog()`.
+`ask()`, `analyze_engineering_task()`, `fabric_stats()`, and
+`knowledge_catalog()`. The same canonical facade is available through the
+FastAPI boundary in `sebrain/api.py` and the local Gradio UI.
 
 ## Layout
 
@@ -85,6 +87,19 @@ This validates the actual repository Knowledge Fabric export through the same C3
 → C35 path used by the Brain. It requires complete dataset-ID coverage and zero
 loader errors, while intentionally avoiding an artificial fixed record-count
 requirement.
+
+## API
+
+Run the real API boundary with:
+
+```bash
+uvicorn sebrain.api:app --host 0.0.0.0 --port 8000
+```
+
+The API validates the Knowledge Fabric during application startup and exposes
+`/health`, `/knowledge`, `/analyze`, and `/ask`. It does not fabricate
+model-backed generation; a real `ModelGateway` must be attached by the host
+application for that capability.
 
 ## UI
 
