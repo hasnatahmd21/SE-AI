@@ -1,32 +1,134 @@
 import json
+
 import pytest
+
 from sebrain.training_config import TrainingConfig
-from sebrain.training_engine import TrainingDataError,load_eligible_examples
+from sebrain.training_engine import TrainingDataError, load_eligible_examples
 from sebrain.training_registry import TrainingRunRegistry
 
+
 def test_training_config_round_trip(tmp_path):
-    cfg=TrainingConfig(base_model="example/model"); cfg.write(tmp_path/"config.json")
-    assert TrainingConfig.from_file(tmp_path/"config.json").to_dict()==cfg.to_dict()
+    cfg = TrainingConfig(base_model="example/model")
+    cfg.write(tmp_path / "config.json")
+    assert TrainingConfig.from_file(tmp_path / "config.json").to_dict() == cfg.to_dict()
+
 
 def test_training_dataset_requires_eligible_record(tmp_path):
-    p=tmp_path/"data.jsonl"; p.write_text(json.dumps({"record_id":"x","training_eligible":False,"execution_status":"NOT_EXECUTED","validation_status":"ILLUSTRATIVE"})+"\n")
-    with pytest.raises(TrainingDataError,match="no training-eligible"): load_eligible_examples(p)
+    p = tmp_path / "data.jsonl"
+    p.write_text(
+        json.dumps(
+            {
+                "record_id": "x",
+                "training_eligible": False,
+                "execution_status": "NOT_EXECUTED",
+                "validation_status": "ILLUSTRATIVE",
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(TrainingDataError, match="no training-eligible"):
+        load_eligible_examples(p)
+
 
 def test_training_dataset_manifest_is_traceable(tmp_path):
-    p=tmp_path/"data.jsonl"; p.write_text(json.dumps({"record_id":"x","training_eligible":True,"execution_status":"EXECUTED","validation_status":"VERIFIED","instruction":"q","output":"a","split":"train"})+"\n")
-    rows,manifest=load_eligible_examples(p); assert rows[0]["record_id"]=="x"; assert manifest["eligible_count"]==1; assert len(manifest["source_sha256"])==64
+    p = tmp_path / "data.jsonl"
+    p.write_text(
+        json.dumps(
+            {
+                "record_id": "x",
+                "training_eligible": True,
+                "execution_status": "EXECUTED",
+                "validation_status": "VERIFIED",
+                "instruction": "q",
+                "output": "a",
+                "split": "train",
+            }
+        )
+        + "\n"
+    )
+    rows, manifest = load_eligible_examples(p)
+    assert rows[0]["record_id"] == "x"
+    assert manifest["eligible_count"] == 1
+    assert len(manifest["source_sha256"]) == 64
+
+
+def test_training_dataset_revalidates_statuses(tmp_path):
+    p = tmp_path / "data.jsonl"
+    p.write_text(
+        json.dumps(
+            {
+                "record_id": "x",
+                "training_eligible": True,
+                "execution_status": "NOT_EXECUTED",
+                "validation_status": "VERIFIED",
+                "instruction": "q",
+                "output": "a",
+                "split": "train",
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(TrainingDataError, match="no training-eligible"):
+        load_eligible_examples(p)
+
+
+def test_training_dataset_rejects_invalid_split(tmp_path):
+    p = tmp_path / "data.jsonl"
+    p.write_text(
+        json.dumps(
+            {
+                "record_id": "x",
+                "training_eligible": True,
+                "execution_status": "EXECUTED",
+                "validation_status": "VERIFIED",
+                "instruction": "q",
+                "output": "a",
+                "split": "other",
+            }
+        )
+        + "\n"
+    )
+    with pytest.raises(TrainingDataError, match="invalid split"):
+        load_eligible_examples(p)
+
+
+def test_training_dataset_rejects_malformed_json(tmp_path):
+    p = tmp_path / "data.jsonl"
+    p.write_text("{bad json}\n")
+    with pytest.raises(TrainingDataError, match="invalid JSON"):
+        load_eligible_examples(p)
+
 
 def test_registry_never_overwrites_run(tmp_path):
-    registry=TrainingRunRegistry(tmp_path); registry.create("run-1",{"x":1},{"eligible_count":1})
-    with pytest.raises(FileExistsError): registry.create("run-1",{"x":2},{"eligible_count":2})
+    registry = TrainingRunRegistry(tmp_path)
+    registry.create("run-1", {"x": 1}, {"eligible_count": 1})
+    with pytest.raises(FileExistsError):
+        registry.create("run-1", {"x": 2}, {"eligible_count": 2})
+
+
+def test_registry_rejects_path_traversal(tmp_path):
+    registry = TrainingRunRegistry(tmp_path)
+    with pytest.raises(ValueError):
+        registry.create("../escape", {}, {})
 
 
 def test_registry_completed_run_is_not_mutated(tmp_path):
-    registry=TrainingRunRegistry(tmp_path)
-    run=registry.create("run-complete", {"x": 1}, {"eligible_count": 1})
+    registry = TrainingRunRegistry(tmp_path)
+    run = registry.create("run-complete", {"x": 1}, {"eligible_count": 1})
     registry.update(run, "COMPLETED")
-    loaded=registry.load("run-complete")
+    with pytest.raises(RuntimeError):
+        registry.update(run, "FAILED")
+    loaded = registry.load("run-complete")
     assert loaded.manifest["status"] == "COMPLETED"
+
+
+def test_registry_artifact_must_stay_inside_run(tmp_path):
+    registry = TrainingRunRegistry(tmp_path)
+    run = registry.create("run-artifact", {}, {})
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x")
+    with pytest.raises(ValueError, match="inside"):
+        registry.add_artifact(run, "outside", outside)
 
 
 def test_training_config_rejects_invalid_steps():
@@ -35,11 +137,20 @@ def test_training_config_rejects_invalid_steps():
 
 
 def test_training_dataset_rejects_eligible_record_without_content(tmp_path):
-    p=tmp_path/"data.jsonl"
-    p.write_text(json.dumps({
-        "record_id":"x","training_eligible":True,
-        "execution_status":"EXECUTED","validation_status":"VERIFIED",
-        "instruction":"","output":"","split":"train"
-    })+"\n")
+    p = tmp_path / "data.jsonl"
+    p.write_text(
+        json.dumps(
+            {
+                "record_id": "x",
+                "training_eligible": True,
+                "execution_status": "EXECUTED",
+                "validation_status": "VERIFIED",
+                "instruction": "",
+                "output": "",
+                "split": "train",
+            }
+        )
+        + "\n"
+    )
     with pytest.raises(TrainingDataError, match="missing required fields"):
         load_eligible_examples(p)
