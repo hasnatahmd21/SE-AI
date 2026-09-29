@@ -4,7 +4,7 @@ import hashlib, json
 from pathlib import Path
 from typing import Any
 from .training_config import TrainingConfig
-from .training_registry import TrainingRunRegistry
+from .training_registry import TrainingRunRegistry\n\n# Training dependencies are intentionally lazy-loaded so core SE Brain imports stay lightweight.
 
 class TrainingDependencyError(RuntimeError): pass
 class TrainingDataError(ValueError): pass
