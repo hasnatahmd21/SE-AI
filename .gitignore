@@ -9,6 +9,7 @@ dist/
 .sebrain/
 .sebrain_ui/
 .sebrain_validation/
+.sebrain_smoke/
 .sebrain_training/
 *.sqlite3
 *.db
