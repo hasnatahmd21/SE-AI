@@ -422,7 +422,15 @@ def train_model(train_rows, val_rows):
     val_ds = CompletionOnlyDataset(val_rows, tokenizer, MAX_LENGTH)
 
     fp16 = True
-    args = TrainingArguments(
+    # Transformers renamed evaluation_strategy to eval_strategy in newer releases.
+    # Detect the installed API instead of assuming one version.
+    import inspect
+    strategy_key = (
+        "eval_strategy"
+        if "eval_strategy" in inspect.signature(TrainingArguments).parameters
+        else "evaluation_strategy"
+    )
+    args_kwargs = dict(
         output_dir=str(run_dir),
         num_train_epochs=EPOCHS,
         per_device_train_batch_size=BATCH_SIZE,
@@ -437,7 +445,6 @@ def train_model(train_rows, val_rows):
         bf16=False,
         gradient_checkpointing=True,
         logging_steps=LOG_STEPS,
-        evaluation_strategy="steps",
         eval_steps=EVAL_STEPS,
         save_strategy="steps",
         save_steps=SAVE_STEPS,
@@ -450,6 +457,8 @@ def train_model(train_rows, val_rows):
         remove_unused_columns=False,
         save_safetensors=True,
     )
+    args_kwargs[strategy_key] = "steps"
+    args = TrainingArguments(**args_kwargs)
 
     class ProgressCallback(TrainerCallback):
         def on_log(self, args, state, control, logs=None, **kwargs):
