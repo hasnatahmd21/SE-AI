@@ -114,7 +114,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         if trainable<=0 or trainable>=total: raise TrainingDependencyError("LoRA did not produce a constrained trainable parameter set")
         run.manifest["model"].update({"trainable_parameters":trainable,"total_parameters":total,"trainable_percentage":100*trainable/total})
         run.manifest["lora"]={**config.to_dict()["lora"],"target_modules":targets}
-        run.manifest["tokenizer"]={"name":config.tokenizer_name,"revision":config.tokenizer_revision,"class":type(tokenizer).__name__}
+        run.manifest["tokenizer"]={"name":config.tokenizer or config.base_model,"revision":config.tokenizer_revision,"class":type(tokenizer).__name__}
         (run.root/"model_manifest.json").write_text(json.dumps(run.manifest["model"],indent=2,sort_keys=True,default=str),encoding="utf-8")
         (run.root/"tokenizer_manifest.json").write_text(json.dumps(run.manifest["tokenizer"],indent=2,sort_keys=True,default=str),encoding="utf-8")
         (run.root/"lora_config.json").write_text(json.dumps(run.manifest["lora"],indent=2,sort_keys=True,default=str),encoding="utf-8")
