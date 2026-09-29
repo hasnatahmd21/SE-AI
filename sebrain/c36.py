@@ -18,13 +18,19 @@ class RAGItem:
     record: FabricRecord
     score: float
     matched_terms: list[str] = field(default_factory=list)
+    lexical_score: float = 0.0
+    semantic_score: float = 0.0
+    retrieval_sources: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "record_id": self.record.record_id,
             "dataset_id": self.record.dataset_id,
             "score": self.score,
+            "lexical_score": self.lexical_score,
+            "semantic_score": self.semantic_score,
             "matched_terms": list(self.matched_terms),
+            "retrieval_sources": list(self.retrieval_sources),
             "source_file": self.record.source_file,
             "source_line": self.record.source_line,
             "content_hash": self.record.content_hash,
