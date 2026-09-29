@@ -65,18 +65,27 @@ class TrainingDatasetExporter:
 
     def convert(self, records: Iterable[FabricRecord]) -> list[TrainingExample]:
         out: list[TrainingExample] = []
-        seen: set[tuple[str, str]] = set()
+        seen_ids: set[str] = set()
+        seen_content: set[str] = set()
         for record in records:
             instruction = (record.question or record.concept or record.topic).strip()
             output = (record.answer or record.explanation).strip()
             if not instruction or not output:
                 continue
-            identity = (record.record_id, record.content_hash)
-            if identity in seen:
+            record_id = str(record.record_id)
+            content_hash = str(record.content_hash or "")
+            fallback_hash = hashlib.sha256(
+                f"{instruction}\0{output}".encode("utf-8")
+            ).hexdigest()
+            content_identity = content_hash or fallback_hash
+            # Content-level deduplication prevents identical examples from
+            # crossing train/validation/test boundaries.
+            if record_id in seen_ids or content_identity in seen_content:
                 continue
-            seen.add(identity)
+            seen_ids.add(record_id)
+            seen_content.add(content_identity)
             digest = hashlib.sha256(
-                f"{record.record_id}\0{record.content_hash}".encode("utf-8")
+                f"{record_id}\0{content_identity}".encode("utf-8")
             ).hexdigest()
             bucket = int(digest[:8], 16) / 0x100000000
             if bucket < self.train_ratio:
