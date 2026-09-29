@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any, Callable, Sequence
 
 from .c34 import FabricRecord, KnowledgeFabricLoader
 
@@ -17,13 +18,19 @@ class RAGItem:
     record: FabricRecord
     score: float
     matched_terms: list[str] = field(default_factory=list)
+    lexical_score: float = 0.0
+    semantic_score: float = 0.0
+    retrieval_sources: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "record_id": self.record.record_id,
             "dataset_id": self.record.dataset_id,
             "score": self.score,
+            "lexical_score": self.lexical_score,
+            "semantic_score": self.semantic_score,
             "matched_terms": list(self.matched_terms),
+            "retrieval_sources": list(self.retrieval_sources),
             "source_file": self.record.source_file,
             "source_line": self.record.source_line,
             "content_hash": self.record.content_hash,
@@ -48,7 +55,7 @@ class RAGContext:
         }
 
 
-class RAGPipeline:
+class _LexicalRAGPipeline:
     """Deterministic field-aware retrieval with explicit provenance trace."""
 
     STOPWORDS = {
@@ -136,3 +143,117 @@ class RAGPipeline:
                 matched.append(token)
                 score += best
         return score, matched
+
+class RAGPipeline(_LexicalRAGPipeline):
+    """C36 hybrid layer; lexical retrieval remains the safe fallback."""
+
+    def __init__(self, loader: KnowledgeFabricLoader, *, semantic_encoder: Callable[[Sequence[str]], Any] | None = None, semantic_model_name: str | None = None, semantic_weight: float = 0.45, semantic_top_k: int = 50):
+        super().__init__(loader)
+        self.semantic_weight = max(0.0, min(1.0, float(semantic_weight)))
+        self.semantic_top_k = max(1, int(semantic_top_k))
+        self._semantic_encoder = semantic_encoder
+        self._semantic_model_name = semantic_model_name
+        self._semantic_model = None
+        self._semantic_records = None
+        self._semantic_matrix = None
+
+    @property
+    def semantic_enabled(self) -> bool:
+        return self._semantic_encoder is not None or self._semantic_model_name is not None
+
+    def enable_semantic(self, *, model_name: str = "BAAI/bge-small-en-v1.5", semantic_weight: float | None = None, semantic_top_k: int | None = None) -> None:
+        self._semantic_model_name = model_name
+        self._semantic_encoder = None
+        self._semantic_model = None
+        self._semantic_records = None
+        self._semantic_matrix = None
+        if semantic_weight is not None:
+            self.semantic_weight = max(0.0, min(1.0, float(semantic_weight)))
+        if semantic_top_k is not None:
+            self.semantic_top_k = max(1, int(semantic_top_k))
+
+    def disable_semantic(self) -> None:
+        self._semantic_encoder = None
+        self._semantic_model_name = None
+        self._semantic_model = None
+        self._semantic_records = None
+        self._semantic_matrix = None
+
+    def retrieve(self, query: str, *, top_k: int = 5, language: str | None = None, dataset_id: str | None = None, concept: str | None = None) -> RAGContext:
+        if not self.semantic_enabled:
+            return super().retrieve(query, top_k=top_k, language=language, dataset_id=dataset_id, concept=concept)
+        try:
+            lexical = super().retrieve(query, top_k=max(top_k, self.semantic_top_k), language=language, dataset_id=dataset_id, concept=concept)
+            semantic = self._semantic_search(query, language=language, dataset_id=dataset_id, concept=concept)
+        except Exception:
+            return super().retrieve(query, top_k=top_k, language=language, dataset_id=dataset_id, concept=concept)
+        lex = {x.record.record_id: x for x in lexical.items}
+        sem = {r.record_id: (r, s) for r, s in semantic}
+        max_l = max((x.score for x in lexical.items), default=1.0)
+        max_s = max((s for _, s in semantic), default=1.0)
+        ranked = []
+        for rid in set(lex) | set(sem):
+            li = lex.get(rid); si = sem.get(rid)
+            record = li.record if li else si[0]
+            ls = li.score if li else 0.0; ss = si[1] if si else 0.0
+            score = (1-self.semantic_weight)*(ls/max_l if ls else 0.0) + self.semantic_weight*(ss/max_s if ss else 0.0)
+            item = RAGItem(record=record, score=score, matched_terms=list(li.matched_terms) if li else [])
+            item.lexical_score = ls; item.semantic_score = ss
+            item.retrieval_sources = (["lexical"] if li else []) + (["semantic"] if si else [])
+            ranked.append(item)
+        ranked.sort(key=lambda x: (-x.score, -x.semantic_score, -x.lexical_score, x.record.record_id))
+        return RAGContext(query=query, items=ranked[:top_k], retrieval_method="hybrid")
+
+    def _semantic_search(self, query: str, *, language: str | None, dataset_id: str | None, concept: str | None):
+        records = self._get_semantic_records()
+        encode = self._get_semantic_encoder()
+        if self._semantic_matrix is None:
+            self._semantic_matrix = self._normalize(
+                encode([self._record_text(r) for r in records])
+            )
+        matrix = self._semantic_matrix
+        q = self._normalize(encode([query]))[0]
+        scored = []
+        for vector, record in zip(matrix, records):
+            similarity = sum(a * b for a, b in zip(vector, q))
+            if language and record.language.lower() != language.lower(): continue
+            if dataset_id and record.dataset_id.upper() != dataset_id.upper(): continue
+            if concept and record.concept.lower() != concept.lower(): continue
+            if float(similarity) > 0: scored.append((record, float(similarity)))
+        scored.sort(key=lambda x: (-x[1], x[0].record_id))
+        return scored[:self.semantic_top_k]
+
+    def _get_semantic_records(self) -> list[FabricRecord]:
+        if self._semantic_records is None:
+            records = []
+            for batch in self.loader.iterate_batches(batch_size=1000): records.extend(batch)
+            self._semantic_records = list({r.record_id: r for r in records}.values())
+        return self._semantic_records
+
+    def _get_semantic_encoder(self):
+        if self._semantic_encoder is not None: return self._semantic_encoder
+        if self._semantic_model is None:
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise RuntimeError("Semantic retrieval requires sentence-transformers") from exc
+            self._semantic_model = SentenceTransformer(self._semantic_model_name)
+        return lambda texts: self._semantic_model.encode(list(texts), normalize_embeddings=True, convert_to_numpy=True, show_progress_bar=False)
+
+    @staticmethod
+    def _normalize(vectors):
+        rows = [list(map(float, row)) for row in vectors]
+        if not rows or any(not row for row in rows):
+            raise ValueError("semantic encoder must return a non-empty 2-D matrix")
+        width = len(rows[0])
+        if any(len(row) != width for row in rows):
+            raise ValueError("semantic encoder returned inconsistent vector sizes")
+        normalized = []
+        for row in rows:
+            norm = sum(value * value for value in row) ** 0.5
+            normalized.append([value / max(norm, 1e-12) for value in row])
+        return normalized
+
+    @staticmethod
+    def _record_text(record: FabricRecord) -> str:
+        return "\n".join(part for part in (record.concept, record.topic, record.question, record.answer, record.explanation, record.knowledge_type, " ".join(record.tags), record.language, record.framework) if part)

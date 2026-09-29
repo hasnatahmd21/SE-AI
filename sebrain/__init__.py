@@ -237,6 +237,24 @@ class SEBrain:
         self.bridge = BrainDatasetBridge(brain=self.app, loader=self.fabric)
         return report
 
+    def enable_semantic_retrieval(
+        self,
+        *,
+        model_name: str = "BAAI/bge-small-en-v1.5",
+        semantic_weight: float = 0.45,
+        semantic_top_k: int = 50,
+    ) -> None:
+        """Enable local semantic retrieval without changing C34/C35 storage."""
+        if self.bridge is None:
+            raise NotInitializedError(
+                "Knowledge Fabric is not connected — call connect_knowledge_fabric() first"
+            )
+        self.bridge.rag.enable_semantic(
+            model_name=model_name,
+            semantic_weight=semantic_weight,
+            semantic_top_k=semantic_top_k,
+        )
+
     def ask(
         self,
         query: str,
