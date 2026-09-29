@@ -42,6 +42,7 @@ class TrainingConfig:
     scheduler: str = "cosine"
     optimizer: str = "adamw_torch"
     precision: str = "auto"
+    quantization_4bit: bool = False
     seed: int = 42
     logging_steps: int = 10
     eval_steps: int = 50
@@ -64,6 +65,7 @@ class TrainingConfig:
             raise ValueError("split ratios must be in [0,1)")
         if self.train_ratio + self.validation_ratio >= 1: raise ValueError("train_ratio + validation_ratio must be < 1")
         if self.precision not in {"auto", "fp32", "fp16", "bf16"}: raise ValueError("invalid precision")
+        if self.quantization_4bit and self.precision == "fp32": raise ValueError("4-bit quantization requires fp16/bf16/auto precision")
         if self.save_total_limit <= 0: raise ValueError("save_total_limit must be > 0")
         if self.logging_steps <= 0 or self.eval_steps <= 0 or self.save_steps <= 0: raise ValueError("logging/eval/save steps must be > 0")
         self.lora.validate()
