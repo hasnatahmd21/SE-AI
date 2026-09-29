@@ -61,6 +61,9 @@ class TrainingRunRegistry:
         if not root.is_dir(): raise FileNotFoundError(run_id)
         return TrainingRun(run_id,root,json.loads((root/"manifest.json").read_text(encoding="utf-8")))
     def update(self, run: TrainingRun, status: str, **fields: Any) -> None:
+        current=run.manifest.get("status")
+        if current=="COMPLETED" and status!="COMPLETED": raise RuntimeError(f"completed training run cannot transition to {status}")
+        if current=="FAILED" and status not in {"FAILED","RESUMING"}: raise RuntimeError(f"failed training run cannot transition to {status}")
         run.manifest["status"]=status; run.manifest.update(fields)
         run.manifest.setdefault("history",[]).append({"timestamp":datetime.now(timezone.utc).isoformat(),"status":status})
         self._write(run.root,run.manifest)
