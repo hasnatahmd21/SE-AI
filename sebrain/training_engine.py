@@ -139,6 +139,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         result=trainer.train(resume_from_checkpoint=resume_checkpoint)
         metrics=dict(result.metrics); mp=run.root/"metrics"/"training_metrics.json"; mp.write_text(json.dumps(metrics,indent=2,default=str),encoding="utf-8")
         evaluation=None
+        test_rows=[r for r in records if r["split"]=="test"]
         if val_ds:
             evaluation=trainer.evaluate(); ep=run.root/"metrics"/"evaluation_metrics.json"; ep.write_text(json.dumps(evaluation,indent=2,default=str),encoding="utf-8"); run.manifest["evaluation"]=evaluation
         adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)
@@ -154,7 +155,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         if evaluation is not None: registry.add_artifact(run,"evaluation_metrics",run.root/"metrics"/"evaluation_metrics.json")
         run.manifest["results"]=metrics; run.manifest["checkpoint_state"]={"best":getattr(trainer.state,"best_model_checkpoint",None),"global_step":trainer.state.global_step}; run.manifest["best_checkpoint"]=getattr(trainer.state,"best_model_checkpoint",None)
         from datetime import datetime,timezone
-        registry.update(run,"COMPLETED",end_time=datetime.now(timezone.utc).isoformat())
+        registry.update(run,"COMPLETED",end_time=datetime.now(timezone.utc).isoformat(),results=metrics,best_checkpoint=run.manifest.get("best_checkpoint"))
         return run.manifest
     except Exception as exc:
         registry.update(run,"FAILED",failure_reason=f"{type(exc).__name__}: {exc}"); raise
