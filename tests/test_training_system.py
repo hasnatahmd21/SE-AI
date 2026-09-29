@@ -19,3 +19,27 @@ def test_training_dataset_manifest_is_traceable(tmp_path):
 def test_registry_never_overwrites_run(tmp_path):
     registry=TrainingRunRegistry(tmp_path); registry.create("run-1",{"x":1},{"eligible_count":1})
     with pytest.raises(FileExistsError): registry.create("run-1",{"x":2},{"eligible_count":2})
+
+
+def test_registry_completed_run_is_not_mutated(tmp_path):
+    registry=TrainingRunRegistry(tmp_path)
+    run=registry.create("run-complete", {"x": 1}, {"eligible_count": 1})
+    registry.update(run, "COMPLETED")
+    loaded=registry.load("run-complete")
+    assert loaded.manifest["status"] == "COMPLETED"
+
+
+def test_training_config_rejects_invalid_steps():
+    with pytest.raises(ValueError, match="logging/eval/save"):
+        TrainingConfig(base_model="example/model", logging_steps=0)
+
+
+def test_training_dataset_rejects_eligible_record_without_content(tmp_path):
+    p=tmp_path/"data.jsonl"
+    p.write_text(json.dumps({
+        "record_id":"x","training_eligible":True,
+        "execution_status":"EXECUTED","validation_status":"VERIFIED",
+        "instruction":"","output":"","split":"train"
+    })+"\n")
+    with pytest.raises(TrainingDataError, match="missing required fields"):
+        load_eligible_examples(p)
