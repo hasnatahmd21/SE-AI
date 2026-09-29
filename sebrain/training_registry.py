@@ -12,6 +12,16 @@ def sha256_file(path: str | Path) -> str:
         for chunk in iter(lambda:f.read(1024*1024), b""): h.update(chunk)
     return h.hexdigest()
 
+def sha256_path(path: str | Path) -> str:
+    p=Path(path)
+    if p.is_file(): return sha256_file(p)
+    if not p.is_dir(): raise FileNotFoundError(p)
+    h=hashlib.sha256()
+    for child in sorted(x for x in p.rglob("*") if x.is_file()):
+        h.update(str(child.relative_to(p)).encode("utf-8"))
+        h.update(sha256_file(child).encode("ascii"))
+    return h.hexdigest()
+
 def _git(args: list[str]) -> str:
     try: return subprocess.check_output(["git",*args],stderr=subprocess.DEVNULL,text=True).strip()
     except Exception: return ""
@@ -55,7 +65,7 @@ class TrainingRunRegistry:
         run.manifest.setdefault("history",[]).append({"timestamp":datetime.now(timezone.utc).isoformat(),"status":status})
         self._write(run.root,run.manifest)
     def add_artifact(self, run: TrainingRun, key: str, path: str | Path) -> None:
-        p=Path(path); run.manifest.setdefault("artifacts",{})[key]={"path":str(p),"sha256":sha256_file(p) if p.is_file() else None}
+        p=Path(path); run.manifest.setdefault("artifacts",{})[key]={"path":str(p),"sha256":sha256_path(p)}
         self._write(run.root,run.manifest)
     @staticmethod
     def _write(root: Path, manifest: dict[str,Any]) -> None:
