@@ -95,8 +95,17 @@ def sha256_file(path: Path) -> str:
 
 
 def install_dependencies() -> None:
+    requirements = REPO_ROOT / "requirements.txt"
+    pyproject = REPO_ROOT / "pyproject.toml"
+
+    if requirements.exists():
+        run([sys.executable, "-m", "pip", "install", "-q", "-r", str(requirements)])
+
+    if pyproject.exists():
+        run([sys.executable, "-m", "pip", "install", "-q", "-e", str(REPO_ROOT)])
+
     run([sys.executable, "-m", "pip", "install", "-q",
-         "torch>=2.2", "transformers>=4.45", "peft>=0.19.1",
+         "transformers>=4.45", "peft>=0.19.1",
          "accelerate>=0.34", "safetensors>=0.4", "bitsandbytes>=0.43",
          "sentencepiece>=0.2", "huggingface_hub>=0.25"])
 
@@ -694,10 +703,48 @@ def main() -> int:
     install_dependencies()
 
     clone_repo(token)
+    install_dependencies()
+
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA GPU is not available. In Kaggle set Accelerator=GPU."
+            )
+        log(f"CUDA: {torch.version.cuda}")
+        log(f"GPU: {torch.cuda.get_device_name(0)}")
+        import transformers, peft, accelerate, bitsandbytes
+        log(f"transformers={transformers.__version__}")
+        log(f"peft={peft.__version__}")
+        log(f"accelerate={accelerate.__version__}")
+        log(f"bitsandbytes={getattr(bitsandbytes, '__version__', 'installed')}")
+    except Exception as exc:
+        raise RuntimeError(
+            "Kaggle training preflight failed before dataset/model work: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
     validate_repo()
 
     source = REPO_ROOT / "training" / "knowledge_fabric.jsonl"
     rows = load_records(source)
+
+    hf_token = get_secret("HF_TOKEN", required=False)
+    try:
+        from transformers import AutoTokenizer
+        kwargs = {"token": hf_token} if hf_token else {}
+        tok = AutoTokenizer.from_pretrained(
+            MODEL_NAME, use_fast=True, **kwargs
+        )
+        if tok.pad_token is None and tok.eos_token is None:
+            raise RuntimeError("Qwen tokenizer has neither pad_token nor eos_token.")
+        log("Qwen tokenizer/model repository access verified.")
+    except Exception as exc:
+        raise RuntimeError(
+            "Unable to access Qwen/Qwen2.5-Coder-7B-Instruct from Hugging Face. "
+            "If authentication is required, add HF_TOKEN as a Kaggle Secret. "
+            f"Details: {type(exc).__name__}: {exc}"
+        ) from exc
 
     # 10,000 training + 500 held-out validation.
     selected = coverage_sample(rows, TARGET_RECORDS + VALIDATION_RECORDS)
@@ -737,6 +784,24 @@ def main() -> int:
         raise RuntimeError("Adapter SHA256 calculation failed.")
 
     commit_sha = publish_to_github(token, manifest)
+
+    verified_head = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
+    ).strip()
+    if verified_head != commit_sha:
+        raise RuntimeError(
+            f"Publication verification failed: HEAD={verified_head}, expected={commit_sha}"
+        )
+
+    tracked = subprocess.check_output(
+        ["git", "ls-files", "--", ADAPTER_REPO_PATH],
+        cwd=str(REPO_ROOT), text=True
+    ).splitlines()
+    if not tracked:
+        raise RuntimeError(
+            "Publication verification failed: adapter is not tracked by git."
+        )
+
     (OUTPUT_ROOT / "publication.json").write_text(
         json.dumps({
             "repository": REPO,
