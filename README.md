@@ -118,3 +118,86 @@ python -m pytest -q
 
 GitHub Actions runs the package tests on Python 3.11 and 3.12 and separately
 validates the real repository Knowledge Fabric export on Python 3.12.
+
+
+## Model Training — LoRA/PEFT
+
+The repository includes a separate heavy training layer so the normal SE Brain installation remains lightweight.
+
+### Training architecture
+
+~~~text
+Knowledge Fabric
+      ↓
+eligible training records
+      ↓
+deterministic JSONL
+      ↓
+TrainingConfig
+      ↓
+base model + tokenizer
+      ↓
+real PEFT/LoRA adapter
+      ↓
+Transformers Trainer
+      ↓
+checkpoints + evaluation
+      ↓
+Training Run Registry
+      ↓
+versioned adapter + reproducibility manifest
+~~~
+
+Install training-only dependencies:
+
+~~~bash
+python -m pip install -r requirements-training.txt
+~~~
+
+Prepare the canonical training artifact:
+
+~~~bash
+python scripts/validate_knowledge_fabric.py
+python scripts/prepare_training_data.py --output training/knowledge_fabric.jsonl
+~~~
+
+Copy configs/training.example.json, set a real Hugging Face-compatible causal language model, and review every training parameter before starting.
+
+Preflight without downloading a model:
+
+~~~bash
+python scripts/train.py --config configs/training.example.json --dry-run
+~~~
+
+Start real LoRA/PEFT training:
+
+~~~bash
+python scripts/train.py --config configs/training.example.json
+~~~
+
+Resume a specific interrupted run:
+
+~~~bash
+python scripts/train.py --config configs/training.example.json --resume --run-id <run_id>
+~~~
+
+Inspect a run:
+
+~~~bash
+python scripts/inspect_training_run.py <run_id>
+~~~
+
+Each run stores configuration, dataset/model/tokenizer manifests, LoRA configuration, checkpoints, logs, metrics, evaluation results and the final adapter under runs/<run_id>/.
+
+The training layer refuses to train on records that are not explicitly training-eligible. It does not convert illustrative, unexecuted, planned, or target-validation-required records into empirical training evidence.
+
+### Kaggle
+
+After cloning the repository into a Kaggle environment:
+
+~~~bash
+bash scripts/kaggle_train.sh
+~~~
+
+This performs dependency installation, Knowledge Fabric validation, training-data preparation and a dry-run preflight. A real model must be configured before starting expensive training. Kaggle still requires execution of the notebook/script; repository upload alone cannot execute training.
+
