@@ -1,6 +1,6 @@
 # Heavy training-only dependencies; core SE Brain installation remains lightweight.
 torch>=2.2
 transformers>=4.45
-peft>=0.13
+peft>=0.19.1
 accelerate>=0.34
 safetensors>=0.4
