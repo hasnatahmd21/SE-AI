@@ -1,0 +1,7 @@
+{
+  "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "examples": 20,
+  "steps": 5,
+  "device": "cpu",
+  "purpose": "smoke_test_pipeline_verification"
+}
