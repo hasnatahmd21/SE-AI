@@ -99,17 +99,20 @@ class TrainingDatasetExporter:
             # illustrative material has been empirically validated. Keep the
             # record for audit/review, but make eligibility explicit.
             training_eligible = (
-                bool(validation_status)
+                bool(execution_status)
+                and bool(validation_status)
+                and execution_status.upper() not in {
+                    "NOT_EXECUTED",
+                    "UNEXECUTED",
+                    "UNKNOWN",
+                    "PLANNED",
+                }
                 and validation_status.upper() not in {
                     "ILLUSTRATIVE",
                     "REQUIRES_TARGET_VALIDATION",
                     "UNVALIDATED",
                     "UNKNOWN",
-                }
-                and execution_status.upper() not in {
-                    "NOT_EXECUTED",
-                    "UNEXECUTED",
-                    "UNKNOWN",
+                    "PLANNED",
                 }
             )
             out.append(TrainingExample(
