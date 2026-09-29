@@ -19,6 +19,12 @@ class TrainingExample:
     source_file: str
     content_hash: str
     split: str
+    execution_status: str
+    validation_status: str
+    evidence_level: str
+    provenance: dict
+    relationships: list
+    training_eligible: bool
 
     def to_dict(self) -> dict:
         return {
@@ -27,10 +33,16 @@ class TrainingExample:
             "instruction": self.instruction,
             "output": self.output,
             "split": self.split,
+            "execution_status": self.execution_status,
+            "validation_status": self.validation_status,
+            "evidence_level": self.evidence_level,
             "provenance": {
                 "source_file": self.source_file,
                 "content_hash": self.content_hash,
+                **dict(self.provenance),
             },
+            "relationships": list(self.relationships),
+            "training_eligible": self.training_eligible,
         }
 
 
@@ -73,6 +85,33 @@ class TrainingDatasetExporter:
                 split = "validation"
             else:
                 split = "test"
+            raw = record.raw if isinstance(record.raw, dict) else {}
+            execution_status = str(raw.get("execution_status", "")).strip()
+            validation_status = str(raw.get("validation_status", "")).strip()
+            evidence_level = str(raw.get("evidence_level", "")).strip()
+            provenance = raw.get("provenance", {})
+            if not isinstance(provenance, dict):
+                provenance = {"source": str(provenance)}
+            relationships = raw.get("relationships", raw.get("related_records", []))
+            if not isinstance(relationships, list):
+                relationships = [relationships]
+            # Preparation must never imply that unexecuted or merely
+            # illustrative material has been empirically validated. Keep the
+            # record for audit/review, but make eligibility explicit.
+            training_eligible = (
+                bool(validation_status)
+                and validation_status.upper() not in {
+                    "ILLUSTRATIVE",
+                    "REQUIRES_TARGET_VALIDATION",
+                    "UNVALIDATED",
+                    "UNKNOWN",
+                }
+                and execution_status.upper() not in {
+                    "NOT_EXECUTED",
+                    "UNEXECUTED",
+                    "UNKNOWN",
+                }
+            )
             out.append(TrainingExample(
                 record_id=record.record_id,
                 dataset_id=record.dataset_id,
@@ -81,6 +120,12 @@ class TrainingDatasetExporter:
                 source_file=record.source_file,
                 content_hash=record.content_hash,
                 split=split,
+                execution_status=execution_status,
+                validation_status=validation_status,
+                evidence_level=evidence_level,
+                provenance=provenance,
+                relationships=relationships,
+                training_eligible=training_eligible,
             ))
         return sorted(out, key=lambda x: x.record_id)
 
