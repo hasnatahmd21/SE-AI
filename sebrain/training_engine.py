@@ -118,7 +118,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
             def on_log(self, args, state, control, logs=None, **kwargs):
                 if logs:
                     run.manifest["latest_metrics"]=dict(logs)
-                    registry.update(run,"TRAINING_RUNNING",step=state.global_step)
+                    registry.update(run,"TRAINING_RUNNING",step=state.global_step,latest_metrics=dict(logs) if logs else {})
             def on_save(self, args, state, control, **kwargs):
                 registry.update(run,"CHECKPOINT_SAVED",step=state.global_step)
         trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer),callbacks=[RegistryCallback()])
