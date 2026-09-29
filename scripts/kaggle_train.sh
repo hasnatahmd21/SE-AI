@@ -20,16 +20,20 @@ python scripts/train.py --config "$CONFIG_PATH" > "$RESULT_PATH"
 RUN_ID="$(python - "$RESULT_PATH" <<'PY'
 import json, sys
 from pathlib import Path
-result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-if result.get("status") != "COMPLETED":
+result = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+if result.get('status') != 'COMPLETED':
     raise SystemExit(f"Training did not complete successfully: {result.get('status')!r}")
-run_id = result.get("run_id")
-if not run_id: raise SystemExit("Training result has no run_id")
+run_id = result.get('run_id')
+if not run_id: raise SystemExit('Training result has no run_id')
 print(run_id)
 PY
 )"
 
 python scripts/package_training_artifact.py "runs/$RUN_ID"
 python scripts/inspect_training_run.py "$RUN_ID" --verify-artifacts
+
+if [[ -n "${HF_REPO_ID:-}" ]]; then
+  python scripts/upload_training_artifact_hf.py --adapter "runs/$RUN_ID/adapter"
+fi
 
 echo "Training and artifact packaging completed: runs/$RUN_ID"
