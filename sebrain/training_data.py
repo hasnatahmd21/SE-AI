@@ -37,9 +37,9 @@ class TrainingExample:
             "validation_status": self.validation_status,
             "evidence_level": self.evidence_level,
             "provenance": {
+                **dict(self.provenance),
                 "source_file": self.source_file,
                 "content_hash": self.content_hash,
-                **dict(self.provenance),
             },
             "relationships": list(self.relationships),
             "training_eligible": self.training_eligible,
@@ -142,4 +142,6 @@ class TrainingDatasetExporter:
             "train": sum(x.split == "train" for x in examples),
             "validation": sum(x.split == "validation" for x in examples),
             "test": sum(x.split == "test" for x in examples),
+            "training_eligible": sum(x.training_eligible for x in examples),
+            "training_ineligible": sum(not x.training_eligible for x in examples),
         }
