@@ -70,6 +70,11 @@ def main() -> int:
             return 1
         result["training_data_checked"] = True
         result["dataset_manifest"] = manifest
+        if args.require_training_data:
+            missing_splits = [s for s in ("train", "validation", "test") if manifest["split_counts"].get(s, 0) == 0]
+            if missing_splits:
+                print(json.dumps({"ready": False, **result, "stage": "training-data", "error": f"required split(s) empty: {missing_splits}"}, indent=2))
+                return 1
     elif args.require_training_data:
         print(json.dumps({"ready": False, **result, "stage": "training-data", "error": f"missing: {args.dataset}"}, indent=2))
         return 1
