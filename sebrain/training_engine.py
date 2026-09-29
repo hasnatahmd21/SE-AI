@@ -90,7 +90,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         if tokenizer.pad_token is None:
             if tokenizer.eos_token is None: raise TrainingDependencyError("tokenizer has neither pad_token nor eos_token")
             tokenizer.pad_token=tokenizer.eos_token
-        model=AutoModelForCausalLM.from_pretrained(config.base_model,revision=config.model_revision)
+        model=AutoModelForCausalLM.from_pretrained(config.base_model,revision=config.model_revision)\n        if getattr(model.config, "pad_token_id", None) is None: model.config.pad_token_id = tokenizer.pad_token_id
         run.manifest["model"].update({"name_or_path":getattr(getattr(model,"config",None),"_name_or_path",config.base_model),"architectures":list(getattr(getattr(model,"config",None),"architectures",[]) or [])})
         targets=list(config.lora.target_modules)
         if not targets:
