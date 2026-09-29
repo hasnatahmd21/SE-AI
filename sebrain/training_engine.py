@@ -13,10 +13,10 @@ def _require_training_deps():
     try:
         import torch
         from peft import LoraConfig, TaskType, get_peft_model
-        from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments
+        from transformers import AutoModelForCausalLM, AutoTokenizer, Trainer, TrainingArguments, TrainerCallback
     except ImportError as exc:
         raise TrainingDependencyError("Training dependencies are missing. Install requirements-training.txt.") from exc
-    return torch,LoraConfig,TaskType,get_peft_model,AutoModelForCausalLM,AutoTokenizer,Trainer,TrainingArguments
+    return torch,LoraConfig,TaskType,get_peft_model,AutoModelForCausalLM,AutoTokenizer,Trainer,TrainingArguments,TrainerCallback
 
 def load_eligible_examples(path: str | Path) -> tuple[list[dict],dict[str,Any]]:
     p=Path(path)
@@ -81,7 +81,7 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
     if dry_run:
         registry.update(run,"DRY_RUN_VALIDATED",hardware=runtime_hardware())
         return run.manifest
-    torch,LoraConfig,TaskType,get_peft_model,AutoModelForCausalLM,AutoTokenizer,Trainer,TrainingArguments=_require_training_deps()
+    torch,LoraConfig,TaskType,get_peft_model,AutoModelForCausalLM,AutoTokenizer,Trainer,TrainingArguments,TrainerCallback=_require_training_deps()
     if config.require_gpu and not torch.cuda.is_available():
         registry.update(run,"FAILED",failure_reason="GPU required but CUDA is unavailable")
         raise TrainingDependencyError("GPU is required by configuration but CUDA is unavailable")
@@ -114,7 +114,14 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         fp16,bf16=_precision(config,torch)
         if val_ds and config.save_steps != config.eval_steps: raise TrainingDataError("save_steps and eval_steps must match when validation is enabled")
         args=TrainingArguments(output_dir=str(run.root/"checkpoints"),num_train_epochs=config.epochs,max_steps=config.max_steps,learning_rate=config.learning_rate,warmup_ratio=config.warmup_ratio,per_device_train_batch_size=config.batch_size,per_device_eval_batch_size=config.batch_size,gradient_accumulation_steps=config.gradient_accumulation_steps,weight_decay=config.weight_decay,lr_scheduler_type=config.scheduler,optim=config.optimizer,logging_steps=config.logging_steps,logging_dir=str(run.root/"logs"),eval_strategy="steps" if val_ds else "no",eval_steps=config.eval_steps,save_strategy="steps",save_steps=config.save_steps,save_total_limit=config.save_total_limit,load_best_model_at_end=bool(val_ds),metric_for_best_model="eval_loss" if val_ds else None,greater_is_better=False if val_ds else None,report_to=[],seed=config.seed,fp16=fp16,bf16=bf16,remove_unused_columns=False)
-        trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer),callbacks=[_RegistryCallback(registry,run)])
+        class RegistryCallback(TrainerCallback):
+            def on_log(self, args, state, control, logs=None, **kwargs):
+                if logs:
+                    run.manifest["latest_metrics"]=dict(logs)
+                    registry.update(run,"TRAINING_RUNNING",step=state.global_step)
+            def on_save(self, args, state, control, **kwargs):
+                registry.update(run,"CHECKPOINT_SAVED",step=state.global_step)
+        trainer=Trainer(model=model,args=args,train_dataset=train_ds,eval_dataset=val_ds,data_collator=_collator(tokenizer),callbacks=[RegistryCallback()])
         resume_checkpoint=None
         if config.resume:
             checkpoints=sorted((run.root/"checkpoints").glob("checkpoint-*"),key=lambda p:int(p.name.rsplit("-",1)[-1]))
