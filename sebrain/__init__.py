@@ -95,6 +95,9 @@ from .model_gateway import (
 )
 from .training_data import TrainingDatasetExporter, TrainingExample
 from .engineering_pipeline import EngineeringAnalysis, EngineeringPipeline
+from .training_config import LoRAConfig, TrainingConfig
+from .training_engine import TrainingDataError, TrainingDependencyError
+from .training_registry import TrainingRun, TrainingRunRegistry
 
 __all__ = [
     "SEBrain",
@@ -126,6 +129,12 @@ __all__ = [
     "TrainingExample",
     "EngineeringAnalysis",
     "EngineeringPipeline",
+    "LoRAConfig",
+    "TrainingConfig",
+    "TrainingDataError",
+    "TrainingDependencyError",
+    "TrainingRun",
+    "TrainingRunRegistry",
 ]
 
 
