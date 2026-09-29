@@ -5,7 +5,7 @@ Package: `sebrain` 0.1.0
 
 ## Current status
 
-The repository has completed the major Knowledge Fabric, canonical engineering-analysis, model-boundary, training-data provenance, and API-boundary work in this hardening pass.
+The repository has completed the major Knowledge Fabric, canonical engineering-analysis, model-boundary, training-data provenance, API-boundary, and initial real LoRA/PEFT training-system implementation in this hardening pass.
 
 **Completion gate remains OPEN.** GitHub Actions is currently failing before any workflow step executes: the latest test jobs terminate after roughly three seconds with empty step lists and runner ID 0. Therefore this audit does not claim a green CI result or production readiness.
 
@@ -19,8 +19,25 @@ The repository has completed the major Knowledge Fabric, canonical engineering-a
 - C11 execution remains an explicit governed boundary; no fake worker execution is introduced.
 - Model inference has a provider-agnostic `ModelGateway`; missing inference fails explicitly instead of fabricating output.
 - Training-data export preserves execution status, validation status, evidence level, provenance, relationships, and explicit training eligibility.
+- A dedicated training configuration layer validates model, tokenizer, optimization, split, precision, and LoRA parameters.
+- A real Transformers + PEFT training engine is present behind lazy training-only dependencies; it does not affect the lightweight core import path.
+- LoRA training records trainable/total parameters and preserves the base model separately from the adapter.
+- Training Run Registry persists immutable run IDs, configuration, dataset/model/tokenizer/LoRA manifests, runtime metadata, status history, checkpoints, logs, metrics, evaluation, and artifact hashes.
+- Resume logic validates the original dataset/base model and resumes from the latest checkpoint rather than silently starting a new run.
+- Training data preparation refuses zero-eligible datasets and does not convert unexecuted/illustrative/planned records into training evidence.
+- Kaggle preflight automation and training CLI/documentation are present; repository upload alone is not represented as automatic execution.
 - A real FastAPI boundary now exposes `/health`, `/knowledge`, `/analyze`, and `/ask`.
 - Repository-wide text search found no TODO/FIXME/NotImplementedError/stub/mock/dummy markers matching the audit queries.
+
+## Training-specific verification gate
+
+The training architecture is implemented, but the current environment has not executed a real base-model download or LoRA training run. The following remain runtime evidence gates:
+
+1. Install the training-only dependency set in a GPU environment.
+2. Run a real tiny-model LoRA smoke test.
+3. Verify checkpoint/resume behavior on an interrupted run.
+4. Verify adapter reload with the recorded base-model metadata.
+5. Run the Kaggle preflight and, separately, a real training execution.
 
 ## Remaining verification gate
 
