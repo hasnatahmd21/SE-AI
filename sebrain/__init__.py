@@ -85,6 +85,15 @@ from .c04 import (
 from .c34 import KnowledgeFabricLoader, FabricRecord
 from .c36 import RAGPipeline, RAGContext
 from .c35 import BrainDatasetBridge, BrainResponse
+from .model_gateway import (
+    CallableModelGateway,
+    ModelGateway,
+    ModelRequest,
+    ModelResponse,
+    ModelUnavailableError,
+    UnavailableModelGateway,
+)
+from .training_data import TrainingDatasetExporter, TrainingExample
 
 __all__ = [
     "SEBrain",
@@ -106,6 +115,14 @@ __all__ = [
     "RAGContext",
     "BrainDatasetBridge",
     "BrainResponse",
+    "ModelGateway",
+    "ModelRequest",
+    "ModelResponse",
+    "ModelUnavailableError",
+    "UnavailableModelGateway",
+    "CallableModelGateway",
+    "TrainingDatasetExporter",
+    "TrainingExample",
 ]
 
 
@@ -130,6 +147,7 @@ class SEBrain:
         self.ontology: Ontology | None = None
         self.fabric: KnowledgeFabricLoader | None = None
         self.bridge: BrainDatasetBridge | None = None
+        self.model_gateway: ModelGateway | None = None
 
     # ---- lifecycle ----------------------------------------------------
     def start(self) -> "SEBrain":
@@ -144,6 +162,7 @@ class SEBrain:
         self.ontology = None
         self.fabric = None
         self.bridge = None
+        self.model_gateway = None
 
     def __enter__(self) -> "SEBrain":
         return self.start()
@@ -153,6 +172,26 @@ class SEBrain:
 
     def health(self) -> Any:
         return self.app.health()
+
+    # ---- Model boundary ------------------------------------------------
+    def set_model_gateway(self, gateway: ModelGateway) -> None:
+        """Attach a real inference adapter without coupling the Brain to a provider."""
+        if not isinstance(gateway, ModelGateway):
+            raise TypeError("gateway must implement ModelGateway")
+        self.model_gateway = gateway
+
+    def generate(self, prompt: str, *, system: str = "", context: Iterable[dict] = ()) -> ModelResponse:
+        """Generate through the configured model boundary; never fabricate output."""
+        if self.model_gateway is None:
+            raise ModelUnavailableError(
+                "No model gateway is configured. Attach a trained/local model adapter first."
+            )
+        request = ModelRequest(
+            prompt=prompt,
+            system=system,
+            context=tuple(dict(item) for item in context),
+        )
+        return self.model_gateway.generate(request)
 
     # ---- Knowledge Fabric integration ---------------------------------
     def connect_knowledge_fabric(self, datasets_dir: str | Path = "./datasets") -> dict[str, Any]:
