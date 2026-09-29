@@ -94,6 +94,7 @@ from .model_gateway import (
     UnavailableModelGateway,
 )
 from .training_data import TrainingDatasetExporter, TrainingExample
+from .engineering_pipeline import EngineeringAnalysis, EngineeringPipeline
 
 __all__ = [
     "SEBrain",
@@ -123,6 +124,8 @@ __all__ = [
     "CallableModelGateway",
     "TrainingDatasetExporter",
     "TrainingExample",
+    "EngineeringAnalysis",
+    "EngineeringPipeline",
 ]
 
 
@@ -148,12 +151,17 @@ class SEBrain:
         self.fabric: KnowledgeFabricLoader | None = None
         self.bridge: BrainDatasetBridge | None = None
         self.model_gateway: ModelGateway | None = None
+        self.pipeline: EngineeringPipeline | None = None
 
     # ---- lifecycle ----------------------------------------------------
     def start(self) -> "SEBrain":
         self.app.start()
         self.memory = MemoryStore(self.app.storage)
         self.ontology = Ontology(self.app.storage)
+        self.pipeline = EngineeringPipeline(
+            memory=self.memory,
+            ontology=self.ontology,
+        )
         return self
 
     def stop(self) -> None:
@@ -163,6 +171,7 @@ class SEBrain:
         self.fabric = None
         self.bridge = None
         self.model_gateway = None
+        self.pipeline = None
 
     def __enter__(self) -> "SEBrain":
         return self.start()
@@ -192,6 +201,23 @@ class SEBrain:
             context=tuple(dict(item) for item in context),
         )
         return self.model_gateway.generate(request)
+
+    def analyze_engineering_task(
+        self,
+        text: str,
+        *,
+        project_id: str = "",
+        task_id: str | None = None,
+        top_k: int = 5,
+    ) -> EngineeringAnalysis:
+        """Run the canonical C05 -> C06 -> C08 path with optional RAG evidence."""
+        if self.pipeline is None:
+            raise NotInitializedError("SEBrain is not started")
+        if self.fabric is not None and self.pipeline.rag is None:
+            self.pipeline.rag = RAGPipeline(self.fabric)
+        return self.pipeline.analyze(
+            text, project_id=project_id, task_id=task_id, top_k=top_k
+        )
 
     # ---- Knowledge Fabric integration ---------------------------------
     def connect_knowledge_fabric(self, datasets_dir: str | Path = "./datasets") -> dict[str, Any]:
