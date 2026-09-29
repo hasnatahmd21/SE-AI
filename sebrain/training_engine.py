@@ -4,7 +4,9 @@ import hashlib, json
 from pathlib import Path
 from typing import Any
 from .training_config import TrainingConfig
-from .training_registry import TrainingRunRegistry\n\n# Training dependencies are intentionally lazy-loaded so core SE Brain imports stay lightweight.
+from .training_registry import TrainingRunRegistry
+
+# Training dependencies are intentionally lazy-loaded so core SE Brain imports stay lightweight.
 
 class TrainingDependencyError(RuntimeError): pass
 class TrainingDataError(ValueError): pass
@@ -37,8 +39,10 @@ def load_eligible_examples(path: str | Path) -> tuple[list[dict],dict[str,Any]]:
     if not by_split["train"]: raise TrainingDataError("eligible training split is empty")
     ids=[r["record_id"] for r in records]
     manifest={"source_path":str(p),"source_sha256":raw_hash,"eligible_count":len(records),"excluded_count":sum(excluded.values()),"exclusion_reasons":excluded,"split_counts":{k:len(v) for k,v in by_split.items()},"record_ids":ids}
-    manifest["record_ids_sha256"]=hashlib.sha256("\n".join(ids).encode()).hexdigest()
-    manifest["split_hashes"]={s:hashlib.sha256("\n".join(r["record_id"] for r in by_split[s]).encode()).hexdigest() for s in ("train","validation","test")}
+    manifest["record_ids_sha256"]=hashlib.sha256("
+".join(ids).encode()).hexdigest()
+    manifest["split_hashes"]={s:hashlib.sha256("
+".join(r["record_id"] for r in by_split[s]).encode()).hexdigest() for s in ("train","validation","test")}
     manifest["dataset_ids"]=sorted({str(r.get("dataset_id","")) for r in records if r.get("dataset_id")})
     return records,manifest
 
@@ -46,7 +50,11 @@ class _CausalDataset:
     def __init__(self,rows,tokenizer,max_length): self.rows,self.tokenizer,self.max_length=rows,tokenizer,max_length
     def __len__(self): return len(self.rows)
     def __getitem__(self,idx):
-        row=self.rows[idx]; text=f"### Instruction\n{row['instruction']}\n\n### Response\n{row['output']}"
+        row=self.rows[idx]; text=f"### Instruction
+{row['instruction']}
+
+### Response
+{row['output']}"
         enc=self.tokenizer(text,truncation=True,max_length=self.max_length,padding=False); enc["labels"]=list(enc["input_ids"]); return enc
 
 def _collator(tokenizer):
@@ -86,11 +94,12 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         registry.update(run,"FAILED",failure_reason="GPU required but CUDA is unavailable")
         raise TrainingDependencyError("GPU is required by configuration but CUDA is unavailable")
     try:
-        tokenizer=AutoTokenizer.from_pretrained(config.tokenizer_name,revision=config.tokenizer_revision,use_fast=True)
+        tokenizer=AutoTokenizer.from_pretrained(config.tokenizer or config.base_model,revision=config.tokenizer_revision,use_fast=True)
         if tokenizer.pad_token is None:
             if tokenizer.eos_token is None: raise TrainingDependencyError("tokenizer has neither pad_token nor eos_token")
             tokenizer.pad_token=tokenizer.eos_token
-        model=AutoModelForCausalLM.from_pretrained(config.base_model,revision=config.model_revision)\n        if getattr(model.config, "pad_token_id", None) is None: model.config.pad_token_id = tokenizer.pad_token_id
+        model=AutoModelForCausalLM.from_pretrained(config.base_model,revision=config.model_revision)
+        if getattr(model.config, "pad_token_id", None) is None: model.config.pad_token_id = tokenizer.pad_token_id
         run.manifest["model"].update({"name_or_path":getattr(getattr(model,"config",None),"_name_or_path",config.base_model),"architectures":list(getattr(getattr(model,"config",None),"architectures",[]) or [])})
         targets=list(config.lora.target_modules)
         if not targets:
@@ -132,7 +141,13 @@ def train(config: TrainingConfig, *, registry: TrainingRunRegistry|None=None, dr
         evaluation=None
         if val_ds:
             evaluation=trainer.evaluate(); ep=run.root/"metrics"/"evaluation_metrics.json"; ep.write_text(json.dumps(evaluation,indent=2,default=str),encoding="utf-8"); run.manifest["evaluation"]=evaluation
-        adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)\n        if test_rows:\n            test_ds=_CausalDataset(test_rows,tokenizer,config.max_seq_length)\n            test_metrics=trainer.evaluate(eval_dataset=test_ds,metric_key_prefix="test")\n            tp=run.root/"metrics"/"test_metrics.json"; tp.write_text(json.dumps(test_metrics,indent=2,default=str),encoding="utf-8")\n            run.manifest["test_evaluation"]=test_metrics\n            registry.add_artifact(run,"test_metrics",tp)
+        adapter_dir=run.root/"adapter"; model.save_pretrained(adapter_dir); tokenizer.save_pretrained(adapter_dir)
+        if test_rows:
+            test_ds=_CausalDataset(test_rows,tokenizer,config.max_seq_length)
+            test_metrics=trainer.evaluate(eval_dataset=test_ds,metric_key_prefix="test")
+            tp=run.root/"metrics"/"test_metrics.json"; tp.write_text(json.dumps(test_metrics,indent=2,default=str),encoding="utf-8")
+            run.manifest["test_evaluation"]=test_metrics
+            registry.add_artifact(run,"test_metrics",tp)
         registry.add_artifact(run,"adapter",adapter_dir); registry.add_artifact(run,"training_metrics",mp)
         for key,name in (("training_config","training_config.json"),("dataset_manifest","dataset_manifest.json"),("model_manifest","model_manifest.json"),("tokenizer_manifest","tokenizer_manifest.json"),("lora_config","lora_config.json")):
             registry.add_artifact(run,key,run.root/name)
