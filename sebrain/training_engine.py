@@ -33,7 +33,7 @@ _INVALID_VALIDATION = {
 def _require_training_deps():
     try:
         import torch
-        from peft import LoraConfig, TaskType, get_peft_model
+        from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
@@ -51,6 +51,7 @@ def _require_training_deps():
         LoraConfig,
         TaskType,
         get_peft_model,
+        prepare_model_for_kbit_training,
         AutoModelForCausalLM,
         AutoTokenizer,
         DataCollatorForLanguageModeling,
@@ -267,7 +268,7 @@ def train(
         registry.update(run, "DRY_RUN_VALIDATED", hardware=runtime_hardware(), dry_run=True)
         return run.manifest
 
-    torch, LoraConfig, TaskType, get_peft_model, AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling, Trainer, TrainingArguments, TrainerCallback = _require_training_deps()
+    torch, LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training, AutoModelForCausalLM, AutoTokenizer, DataCollatorForLanguageModeling, Trainer, TrainingArguments, TrainerCallback = _require_training_deps()
 
     if config.require_gpu and not torch.cuda.is_available():
         registry.update(run, "FAILED", failure_reason="GPU required but CUDA is unavailable")
@@ -284,9 +285,23 @@ def train(
                 raise TrainingDependencyError("tokenizer has neither pad_token nor eos_token")
             tokenizer.pad_token = tokenizer.eos_token
 
-        model = AutoModelForCausalLM.from_pretrained(
-            config.base_model, revision=config.model_revision
-        )
+        model_kwargs = {"revision": config.model_revision}
+        if config.quantization_4bit:
+            try:
+                from transformers import BitsAndBytesConfig
+                quant_dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+                model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=quant_dtype,
+                )
+                model_kwargs["device_map"] = "auto"
+            except ImportError as exc:
+                raise TrainingDependencyError("4-bit QLoRA requires bitsandbytes") from exc
+        model = AutoModelForCausalLM.from_pretrained(config.base_model, **model_kwargs)
+        if config.quantization_4bit:
+            model = prepare_model_for_kbit_training(model)
         if getattr(model.config, "pad_token_id", None) is None:
             model.config.pad_token_id = tokenizer.pad_token_id
 

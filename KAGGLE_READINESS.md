@@ -64,3 +64,9 @@ Kaggle validation must establish:
 6. No fabricated records are introduced to satisfy a fixed count.
 
 Record count is not a substitute for quality, coverage, correctness, or evidence.
+
+## Training readiness hardening
+
+The repository now includes a training-readiness gate, a two-step Qwen2.5-0.5B smoke configuration, model/LoRA compatibility preflight, optional 4-bit QLoRA support, final LoRA adapter load validation, reproducible artifact packaging with SHA-256 manifest, and an optional Hugging Face model-artifact backup. The full Kaggle flow refuses the placeholder base model, prepares and revalidates eligible training data, runs a dry-run preflight, trains, packages the completed adapter, verifies registered artifact hashes, and optionally uploads the adapter when `HF_REPO_ID` and `HF_TOKEN` are supplied as environment secrets.
+
+The smoke configuration is only an infrastructure test; it is not the final SE Brain base model or final training run.
