@@ -85,6 +85,7 @@ from .c04 import (
 from .c34 import KnowledgeFabricLoader, FabricRecord
 from .c36 import RAGPipeline, RAGContext
 from .c35 import BrainDatasetBridge, BrainResponse
+from .qwen_gateway import QwenLoRAGateway
 from .model_gateway import (
     CallableModelGateway,
     ModelGateway,
@@ -125,6 +126,7 @@ __all__ = [
     "ModelUnavailableError",
     "UnavailableModelGateway",
     "CallableModelGateway",
+    "QwenLoRAGateway",
     "TrainingDatasetExporter",
     "TrainingExample",
     "EngineeringAnalysis",
@@ -210,6 +212,48 @@ class SEBrain:
             context=tuple(dict(item) for item in context),
         )
         return self.model_gateway.generate(request)
+    def configure_qwen_gateway(
+        self,
+        *,
+        base_model: str | None = None,
+        adapter_path: str | Path | None = None,
+        load_in_4bit: bool | None = None,
+        max_new_tokens: int | None = None,
+        device: str | None = None,
+    ) -> QwenLoRAGateway:
+        """Attach the repository's local Qwen + trained LoRA gateway lazily."""
+        gateway = QwenLoRAGateway(
+            base_model=base_model,
+            adapter_path=str(adapter_path) if adapter_path is not None else None,
+            load_in_4bit=load_in_4bit,
+            max_new_tokens=max_new_tokens,
+            device=device,
+        )
+        self.set_model_gateway(gateway)
+        return gateway
+
+    def generate_with_knowledge(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        language: str | None = None,
+        dataset_id: str | None = None,
+        concept: str | None = None,
+        system: str = "",
+    ) -> ModelResponse:
+        """Run C34 -> C36 -> C35 retrieval, then real local model generation."""
+        if self.bridge is None:
+            raise NotInitializedError(
+                "Knowledge Fabric is not connected — call connect_knowledge_fabric() first"
+            )
+        response = self.bridge.answer(
+            query, top_k=top_k, language=language,
+            dataset_id=dataset_id, concept=concept,
+        )
+        context = tuple(item.to_dict() for item in response.knowledge)
+        return self.generate(query, system=system, context=context)
+
 
     def analyze_engineering_task(
         self,
