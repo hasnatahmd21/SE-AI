@@ -16,10 +16,11 @@ def main() -> int:
 
     with SEBrain(Config(data_dir=args.data_dir)) as brain:
         report = brain.connect_knowledge_fabric(args.datasets)
-        # C34 records malformed source entries in its audit/error metadata
-        # while continuing to load valid records. Do not discard the valid
-        # training corpus when dataset coverage remains complete.
-        if report["missing_dataset_ids"]:
+        stats = brain.fabric_stats()
+        # Gate on the same authoritative coverage check as CI validation.
+        # Source-level defects remain visible in the report but do not discard
+        # an otherwise complete valid fabric.
+        if report["missing_dataset_ids"] or not stats["coverage"]["complete"]:
             print("Knowledge Fabric validation failed; refusing to export training data.")
             return 1
         result = brain.export_training_data(args.output)
