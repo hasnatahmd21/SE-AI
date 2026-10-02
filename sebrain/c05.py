@@ -660,7 +660,11 @@ def _classify_sentence(text: str) -> tuple[RequirementKind, list[str]] | None:
         return RequirementKind.OBJECTIVE, []
 
     # 11. Functional
+    # Mixed action requirements may also look like objectives. Recognize
+    # explicit functional/test actions so they are not lost as objectives.
     if any(m in low for m in FUNCTIONAL_MARKERS):
+        return RequirementKind.FUNCTIONAL, []
+    if re.search(r"\b(build|create|develop|implement|run|execute|test|tests|support|provide|allow|enable)\b", low):
         return RequirementKind.FUNCTIONAL, []
 
     return None
