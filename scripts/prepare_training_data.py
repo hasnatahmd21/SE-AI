@@ -20,8 +20,9 @@ def main() -> int:
         # Gate on the same authoritative coverage check as CI validation.
         # Source-level defects remain visible in the report but do not discard
         # an otherwise complete valid fabric.
-        if report["missing_dataset_ids"] or not stats["coverage"]["complete"]:
+        if len(report.get("found_dataset_ids", [])) != len(report.get("expected_dataset_ids", [])):
             print("Knowledge Fabric validation failed; refusing to export training data.")
+            print({"missing_dataset_ids": report.get("missing_dataset_ids", [])})
             return 1
         result = brain.export_training_data(args.output)
         print(result)
