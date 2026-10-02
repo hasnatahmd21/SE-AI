@@ -1869,50 +1869,248 @@ class KnowledgeFabricLoader:
         dataset_id: str | None = None,
         concept: str | None = None,
     ) -> list[FabricRecord]:
+        """Relevance-ranked Knowledge Fabric retrieval.
+
+        Ranking priorities:
+        1. Exact phrase in concept/question/topic
+        2. Technical-term matches in concept/question/topic
+        3. Coverage of multiple query terms
+        4. Supporting matches in tags/answer/explanation/framework
+        5. Prevent generic operational records from outranking
+           direct technical knowledge merely because of common words.
+        """
         if not query or (limit is not None and limit <= 0):
             return []
-        terms = [
-            token.lower()
-            for token in re.findall(r"[A-Za-z0-9_+#.-]+", query)
-            if len(token) >= 2
-        ]
+
+        raw_terms = re.findall(
+            r"[A-Za-z0-9_+#.-]+",
+            query.lower(),
+        )
+
+        stop_words = {
+            "what", "is", "are", "the", "a", "an",
+            "how", "why", "does", "do", "to", "of",
+            "in", "for", "and", "or", "with", "should",
+            "can", "when", "where", "which",
+        }
+
+        terms: list[str] = []
+        for term in raw_terms:
+            if len(term) >= 2 and term not in stop_words:
+                if term not in terms:
+                    terms.append(term)
+
         if not terms:
             return []
 
+        fields = (
+            "question",
+            "answer",
+            "explanation",
+            "concept",
+            "topic",
+            "tags_json",
+            "framework",
+            "language",
+            "search_text",
+        )
+
         clauses: list[str] = []
         params: list[Any] = []
-        fields = (
-            "question", "answer", "explanation", "concept", "topic",
-            "tags_json", "framework", "language", "search_text",
-        )
+
         for term in terms:
             escaped = (
                 term.replace("!", "!!")
                 .replace("%", "!%")
                 .replace("_", "!_")
             )
+
             like = f"%{escaped}%"
-            clauses.append("(" + " OR ".join(
-                f"LOWER({field}) LIKE ? ESCAPE '!'"
-                for field in fields
-            ) + ")")
+
+            clauses.append(
+                "("
+                + " OR ".join(
+                    f"LOWER({field}) LIKE ? ESCAPE '!'"
+                    for field in fields
+                )
+                + ")"
+            )
+
             params.extend([like] * len(fields))
 
-        sql = "SELECT * FROM fabric_records WHERE (" + " OR ".join(clauses) + ")"
+        sql = (
+            "SELECT * FROM fabric_records WHERE ("
+            + " OR ".join(clauses)
+            + ")"
+        )
+
         if dataset_id:
             sql += " AND dataset_id=?"
-            params.append(self._normalise_dataset_id(dataset_id) or dataset_id)
+            params.append(
+                self._normalise_dataset_id(dataset_id)
+                or dataset_id
+            )
+
         if language:
-            sql += " AND language=?"
+            sql += " AND LOWER(language)=LOWER(?)"
             params.append(language)
+
         if concept:
-            sql += " AND concept=?"
-            params.append(concept)
-        sql += " ORDER BY record_id"
-        if limit is not None:
-            sql += " LIMIT ?"
-            params.append(limit)
-        return [self._row_to_record(r) for r in self.storage.query(sql, params)]
+            sql += " AND LOWER(concept) LIKE LOWER(?)"
+            params.append(f"%{concept}%")
+
+        # Important: do NOT LIMIT before relevance scoring.
+        rows = self.storage.query(sql, params)
+
+        def norm(value: Any) -> str:
+            return str(value or "").lower()
+
+        def relevance(row: dict[str, Any]) -> float:
+            question = norm(row.get("question"))
+            concept_value = norm(row.get("concept"))
+            topic = norm(row.get("topic"))
+            answer = norm(row.get("answer"))
+            explanation = norm(row.get("explanation"))
+            tags = norm(row.get("tags_json"))
+            framework = norm(row.get("framework"))
+            language_value = norm(row.get("language"))
+            dataset = norm(row.get("dataset_id"))
+
+            q = query.lower().strip()
+            score = 0.0
+
+            # ----------------------------------------------------
+            # Exact phrase matches
+            # ----------------------------------------------------
+            if q in question:
+                score += 100
+            if q in concept_value:
+                score += 95
+            if q in topic:
+                score += 80
+            if q in answer:
+                score += 40
+            if q in explanation:
+                score += 30
+
+            # ----------------------------------------------------
+            # Technical term relevance
+            # ----------------------------------------------------
+            for term in terms:
+
+                if term in concept_value:
+                    score += 30
+
+                if term in question:
+                    score += 28
+
+                if term in topic:
+                    score += 22
+
+                if term in tags:
+                    score += 12
+
+                if term in answer:
+                    score += 8
+
+                if term in explanation:
+                    score += 6
+
+                if term in framework:
+                    score += 5
+
+                if term in language_value:
+                    score += 3
+
+                # Whole-word bonus for important fields
+                for value, bonus in (
+                    (concept_value, 12),
+                    (question, 10),
+                    (topic, 8),
+                ):
+                    if re.search(
+                        r"(?<![A-Za-z0-9_])"
+                        + re.escape(term)
+                        + r"(?![A-Za-z0-9_])",
+                        value,
+                    ):
+                        score += bonus
+
+            # ----------------------------------------------------
+            # Multi-term coverage
+            # ----------------------------------------------------
+            searchable = " ".join(
+                (
+                    question,
+                    concept_value,
+                    topic,
+                    answer,
+                    explanation,
+                    tags,
+                    framework,
+                )
+            )
+
+            matched = sum(
+                1 for term in terms
+                if term in searchable
+            )
+
+            score += matched * 10
+
+            if len(terms) > 1 and matched == len(terms):
+                score += 35
+
+            # ----------------------------------------------------
+            # Dataset preference
+            # ----------------------------------------------------
+            technical_datasets = {
+                "d01", "d02", "d03", "d04", "d05",
+                "d06", "d07", "d08", "d09", "d10",
+                "d11", "d12", "d13", "d14", "d15",
+                "d16", "d17", "d18", "d19", "d20",
+                "d21", "d22", "d23", "d24", "d25",
+                "d27", "d28", "d29", "d30", "d31",
+                "d32", "d33", "d34", "d35", "d36",
+                "d37", "d38", "d39", "d40", "d41",
+                "d42", "d43", "d44", "d45", "d46",
+                "d47", "d48", "d49",
+            }
+
+            if dataset in technical_datasets:
+                score += 4
+
+            # D50-D58 are evidence/operations-oriented.
+            # They should not outrank direct technical records
+            # when they only match generic query vocabulary.
+            if dataset in {
+                "d50", "d51", "d52", "d53",
+                "d54", "d55", "d56", "d57", "d58",
+            }:
+                if matched < len(terms):
+                    score -= 12
+
+            return score
+
+        ranked = sorted(
+            rows,
+            key=lambda row: (
+                relevance(row),
+                len(norm(row.get("concept"))),
+                len(norm(row.get("question"))),
+            ),
+            reverse=True,
+        )
+
+        if limit is None:
+            selected = ranked
+        else:
+            selected = ranked[:limit]
+
+        return [
+            self._row_to_record(row)
+            for row in selected
+        ]
 
     def dataset_catalog(self) -> list[dict[str, Any]]:
         return self.storage.query(
