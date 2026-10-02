@@ -618,7 +618,13 @@ def _classify_sentence(text: str) -> tuple[RequirementKind, list[str]] | None:
     # objective rather than misfiled under NFR just because it also
     # contains a phrase like "production-quality".
     if _starts_with_objective_verb(low):
-        return RequirementKind.OBJECTIVE, []
+        # A leading goal verb is an objective only when the sentence does not
+        # also contain an explicit functional/action requirement.
+        if not any(m in low for m in FUNCTIONAL_MARKERS) and not re.search(
+            r"\b(build|create|develop|implement|run|execute|test|tests|support|provide|allow|enable)\b",
+            low,
+        ):
+            return RequirementKind.OBJECTIVE, []
 
     # 4. Constraints (strong) — explicit prohibition markers ("must not",
     # "cannot", "shall not"...) are an unambiguous signal and should win
