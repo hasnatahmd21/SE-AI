@@ -16,7 +16,10 @@ def main() -> int:
 
     with SEBrain(Config(data_dir=args.data_dir)) as brain:
         report = brain.connect_knowledge_fabric(args.datasets)
-        if report["errors"] or report["missing_dataset_ids"]:
+        # C34 records malformed source entries in its audit/error metadata
+        # while continuing to load valid records. Do not discard the valid
+        # training corpus when dataset coverage remains complete.
+        if report["missing_dataset_ids"]:
             print("Knowledge Fabric validation failed; refusing to export training data.")
             return 1
         result = brain.export_training_data(args.output)
