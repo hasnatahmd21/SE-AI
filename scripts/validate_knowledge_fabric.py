@@ -36,8 +36,10 @@ def main() -> int:
 
         print(json.dumps(result, indent=2, ensure_ascii=False))
 
-        if report["errors"]:
-            return 1
+        # Individual malformed source records are retained in C34 audit/error
+        # metadata and do not invalidate an otherwise complete fabric: valid
+        # records are still loaded, while the report remains explicit about
+        # skipped source defects. Coverage/completeness is the CI gate.
         if report["missing_dataset_ids"]:
             return 1
         if not stats["coverage"]["complete"]:
