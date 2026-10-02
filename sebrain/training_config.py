@@ -52,6 +52,12 @@ class TrainingConfig:
     require_gpu: bool = True
     resume: bool = False
     lora: LoRAConfig = field(default_factory=LoRAConfig)
+
+    def __post_init__(self) -> None:
+        # TrainingConfig is a validated boundary: invalid runtime settings
+        # must fail at construction time, not only when written/used later.
+        self.validate()
+
     def validate(self) -> None:
         if not self.base_model.strip(): raise ValueError("base_model is required")
         if self.max_seq_length <= 0: raise ValueError("max_seq_length must be > 0")
