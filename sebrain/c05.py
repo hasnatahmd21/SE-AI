@@ -661,17 +661,17 @@ def _classify_sentence(text: str) -> tuple[RequirementKind, list[str]] | None:
     if any(m in low for m in CONSTRAINT_MARKERS_SOFT):
         return RequirementKind.CONSTRAINT, []
 
-    # 10. Objective (weak signal: verb+noun anywhere in the sentence)
-    if _looks_like_objective(low):
-        return RequirementKind.OBJECTIVE, []
-
-    # 11. Functional
-    # Mixed action requirements may also look like objectives. Recognize
-    # explicit functional/test actions so they are not lost as objectives.
+    # 10. Functional action fallback. This is intentionally before the weak
+    # objective heuristic so "Build ... and run regression tests" remains a
+    # functional requirement rather than being swallowed by "build + API".
     if any(m in low for m in FUNCTIONAL_MARKERS):
         return RequirementKind.FUNCTIONAL, []
     if re.search(r"\b(build|create|develop|implement|run|execute|test|tests|support|provide|allow|enable)\b", low):
         return RequirementKind.FUNCTIONAL, []
+
+    # 11. Objective (weak signal: verb+noun anywhere in the sentence)
+    if _looks_like_objective(low):
+        return RequirementKind.OBJECTIVE, []
 
     return None
 
